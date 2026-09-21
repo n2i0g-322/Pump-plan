@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Clock24 } from "./components/Clock24";
 import { MilkBottleBuddy } from "./components/MilkBottleBuddy";
 import { SupplyDemandCard } from "./components/SupplyDemandCard";
+import { MotivationTipsCard } from "./components/MotivationTipsCard";
 import {
   DAYS,
   DAILY_CLOCK,
@@ -252,6 +253,7 @@ function DayView({
           onFedOz={onFedOz}
           onFreezerBankOz={onFreezerBankOz}
         />
+        <MotivationTipsCard />
       </section>
 
       <section className="detail-panel">
