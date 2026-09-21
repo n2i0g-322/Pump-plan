@@ -7,28 +7,35 @@ import {
   macrosToNutrientMap,
   type MacroSet,
 } from "../lib/nutrition";
+import { round1 } from "../lib/units";
 
 export type DayLog = {
   pumps: Record<string, boolean>;
+  /** Actual ounces logged per pump session id */
+  pumpOz: Record<string, number>;
   meals: Record<string, boolean>;
   notes: Record<string, string>;
   /** Logged nutrient amounts keyed by nutrient id (protein, carbs, sugar, …) */
   nutrients: Record<string, number>;
   /** Per-meal food + nutrition + photos */
   foodLogs: Record<string, MealFoodEntry>;
-  /** Ounces pumped today (supply tracker) */
+  /** Ounces pumped today (supply tracker) — sum of checked pumpOz */
   pumpedOz: number;
   /** Ounces baby drank today (0 if unknown) */
   fedOz: number;
   /** Freezer bank stash in oz */
   freezerBankOz: number;
+  /** True once freezer/fed were seeded from previous calendar day */
+  seededFromPrev?: boolean;
 };
 
-const STORAGE = "pump-week-logs-v3";
+const STORAGE = "pump-week-logs-v4";
+const PREV_KEYS = ["pump-week-logs-v3", "pump-week-logs-v2", "pump-week-logs-v1"];
 
 function emptyLog(): DayLog {
   return {
     pumps: {},
+    pumpOz: {},
     meals: {},
     notes: {},
     nutrients: {},
@@ -36,31 +43,65 @@ function emptyLog(): DayLog {
     pumpedOz: 0,
     fedOz: 0,
     freezerBankOz: 0,
+    seededFromPrev: false,
+  };
+}
+
+function sanitizeOz(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? round1(value) : 0;
+}
+
+/** Recompute pumpedOz from checked pumps' stored oz values. */
+function sumCheckedPumpOz(pumps: Record<string, boolean>, pumpOz: Record<string, number>): number {
+  let total = 0;
+  for (const [id, on] of Object.entries(pumps)) {
+    if (!on) continue;
+    const oz = pumpOz[id];
+    if (typeof oz === "number" && oz > 0) total += oz;
+  }
+  return round1(total);
+}
+
+function normalizeLog(v: Partial<DayLog> & { pumpOz?: Record<string, number> }): DayLog {
+  const pumps = v.pumps ?? {};
+  const pumpOz: Record<string, number> = { ...(v.pumpOz ?? {}) };
+  // Migrate: if older logs have pumps checked but no pumpOz, leave empty (user can edit)
+  const pumpedOz =
+    typeof v.pumpedOz === "number" && v.pumpedOz >= 0
+      ? round1(v.pumpedOz)
+      : sumCheckedPumpOz(pumps, pumpOz);
+  return {
+    pumps,
+    pumpOz,
+    meals: v.meals ?? {},
+    notes: v.notes ?? {},
+    nutrients: v.nutrients ?? {},
+    foodLogs: v.foodLogs ?? {},
+    pumpedOz,
+    fedOz: typeof v.fedOz === "number" && v.fedOz >= 0 ? round1(v.fedOz) : 0,
+    freezerBankOz:
+      typeof v.freezerBankOz === "number" && v.freezerBankOz >= 0 ? round1(v.freezerBankOz) : 0,
+    seededFromPrev: Boolean(v.seededFromPrev),
   };
 }
 
 function loadAll(): Record<string, DayLog> {
   try {
-    const raw =
-      localStorage.getItem(STORAGE) ??
-      localStorage.getItem("pump-week-logs-v2") ??
-      localStorage.getItem("pump-week-logs-v1");
+    let raw = localStorage.getItem(STORAGE);
+    if (!raw) {
+      for (const k of PREV_KEYS) {
+        raw = localStorage.getItem(k);
+        if (raw) break;
+      }
+    }
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, Partial<DayLog>>;
     const next: Record<string, DayLog> = {};
     for (const [k, v] of Object.entries(parsed)) {
-      next[k] = {
-        pumps: v.pumps ?? {},
-        meals: v.meals ?? {},
-        notes: v.notes ?? {},
-        nutrients: v.nutrients ?? {},
-        foodLogs: v.foodLogs ?? {},
-        pumpedOz: typeof v.pumpedOz === "number" && v.pumpedOz >= 0 ? v.pumpedOz : 0,
-        fedOz: typeof v.fedOz === "number" && v.fedOz >= 0 ? v.fedOz : 0,
-        freezerBankOz:
-          typeof v.freezerBankOz === "number" && v.freezerBankOz >= 0 ? v.freezerBankOz : 0,
-      };
+      next[k] = normalizeLog(v);
     }
+    // Persist migrated data under v4
+    localStorage.setItem(STORAGE, JSON.stringify(next));
     return next;
   } catch {
     return {};
@@ -79,8 +120,30 @@ function fromMap(n: Record<string, number>): MacroSet {
   };
 }
 
-function sanitizeOz(value: number): number {
-  return Number.isFinite(value) && value >= 0 ? value : 0;
+/** Previous calendar weekday id + month/year when crossing month boundaries via Date math. */
+function previousDayRef(
+  year: number,
+  monthIndex: number,
+  dayId: string,
+): { year: number; monthIndex: number; dayId: string } | null {
+  const idx = DAYS.findIndex((d) => d.id === dayId);
+  if (idx < 0) return null;
+  // Map Mon=0..Sun=6 to a Date: pick a Monday-aligned week in that month
+  // Use mid-month Monday as anchor, then offset by day index.
+  const anchor = new Date(year, monthIndex, 15);
+  // Find Monday of that week (or previous)
+  const dow = anchor.getDay(); // 0=Sun
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(year, monthIndex, 15 + mondayOffset);
+  const target = new Date(monday);
+  target.setDate(monday.getDate() + idx - 1); // previous calendar day
+  const prevDow = target.getDay();
+  const prevDayId = DAYS[prevDow === 0 ? 6 : prevDow - 1].id;
+  return {
+    year: target.getFullYear(),
+    monthIndex: target.getMonth(),
+    dayId: prevDayId,
+  };
 }
 
 export function useLogs() {
@@ -106,11 +169,52 @@ export function useLogs() {
     [],
   );
 
-  const togglePump = (year: number, monthIndex: number, dayId: string, pumpId: string) =>
-    patch(year, monthIndex, dayId, (cur) => ({
-      ...cur,
-      pumps: { ...cur.pumps, [pumpId]: !cur.pumps[pumpId] },
-    }));
+  /**
+   * Toggle a pump check. When turning ON, default pumpOz[id] to sessionOz if empty,
+   * then recompute pumpedOz from checked sessions. When OFF, keep stored oz but exclude from total.
+   */
+  const togglePump = (
+    year: number,
+    monthIndex: number,
+    dayId: string,
+    pumpId: string,
+    sessionOz = 0,
+  ) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const turningOn = !cur.pumps[pumpId];
+      const pumps = { ...cur.pumps, [pumpId]: turningOn };
+      const pumpOz = { ...cur.pumpOz };
+      if (turningOn) {
+        const existing = pumpOz[pumpId];
+        if (!(typeof existing === "number" && existing > 0)) {
+          pumpOz[pumpId] = sanitizeOz(sessionOz);
+        }
+      }
+      return {
+        ...cur,
+        pumps,
+        pumpOz,
+        pumpedOz: sumCheckedPumpOz(pumps, pumpOz),
+      };
+    });
+
+  /** Set ounces for one pump session; refreshes pumpedOz from checked sum. */
+  const setPumpOz = (
+    year: number,
+    monthIndex: number,
+    dayId: string,
+    pumpId: string,
+    oz: number,
+  ) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const pumpOz = { ...cur.pumpOz, [pumpId]: sanitizeOz(oz) };
+      // If she edits oz while unchecked, still store it; total only counts checked
+      return {
+        ...cur,
+        pumpOz,
+        pumpedOz: sumCheckedPumpOz(cur.pumps, pumpOz),
+      };
+    });
 
   const toggleMeal = (year: number, monthIndex: number, dayId: string, mealId: string) =>
     patch(year, monthIndex, dayId, (cur) => ({
@@ -170,7 +274,6 @@ export function useLogs() {
           ? prevEntry.lastApplied
           : EMPTY_MACROS;
       const current = fromMap(cur.nutrients ?? {});
-      // current - prev + new
       const withoutPrev: MacroSet = {
         calories: Math.max(0, current.calories - prevApplied.calories),
         protein: Math.max(0, Math.round((current.protein - prevApplied.protein) * 10) / 10),
@@ -209,6 +312,39 @@ export function useLogs() {
   const setFreezerBankOz = (year: number, monthIndex: number, dayId: string, value: number) =>
     patch(year, monthIndex, dayId, (cur) => ({ ...cur, freezerBankOz: sanitizeOz(value) }));
 
+  /**
+   * Seed freezer bank + baby drank from previous calendar day once when first opened.
+   */
+  const ensureDaySeeded = useCallback(
+    (year: number, monthIndex: number, dayId: string) => {
+      const key = dayKey(year, monthIndex, dayId);
+      setAll((prev) => {
+        const cur = prev[key] ?? emptyLog();
+        if (cur.seededFromPrev) return prev;
+        const ref = previousDayRef(year, monthIndex, dayId);
+        if (!ref) {
+          const marked = { ...cur, seededFromPrev: true };
+          const next = { ...prev, [key]: marked };
+          localStorage.setItem(STORAGE, JSON.stringify(next));
+          return next;
+        }
+        const prevLog = prev[dayKey(ref.year, ref.monthIndex, ref.dayId)];
+        const seeded: DayLog = {
+          ...cur,
+          freezerBankOz: prevLog ? sanitizeOz(prevLog.freezerBankOz) : cur.freezerBankOz,
+          fedOz: prevLog ? sanitizeOz(prevLog.fedOz) : cur.fedOz,
+          seededFromPrev: true,
+        };
+        // Only seed if today's values look untouched (both still 0) OR always copy freezer
+        // Spec: carry freezer as-is; carry fedOz as initial default once.
+        const next = { ...prev, [key]: seeded };
+        localStorage.setItem(STORAGE, JSON.stringify(next));
+        return next;
+      });
+    },
+    [],
+  );
+
   /** Score pumps against an optional active session list (defaults to full PUMP_IDS). */
   const scoreDay = useCallback((log: DayLog, pumpIds?: string[]) => {
     const ids = pumpIds ?? PUMP_IDS;
@@ -246,9 +382,11 @@ export function useLogs() {
     [all, scoreDay],
   );
 
+
   return {
     getLog,
     togglePump,
+    setPumpOz,
     toggleMeal,
     setNote,
     setNutrient,
@@ -257,6 +395,7 @@ export function useLogs() {
     setPumpedOz,
     setFedOz,
     setFreezerBankOz,
+    ensureDaySeeded,
     scoreDay,
     bestInMonth,
   };

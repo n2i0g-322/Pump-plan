@@ -1,11 +1,16 @@
 import { DAILY_CLOCK } from "../data/plan";
 import type { SupplyPlan } from "../lib/supplyDemand";
+import { ozToMl, round1 } from "../lib/units";
 
 type Props = {
   plan: SupplyPlan;
   pumpedOz: number;
   fedOz: number;
   freezerBankOz: number;
+  /** Map of pump id → done */
+  pumps?: Record<string, boolean>;
+  /** Actual oz per pump session */
+  pumpOz?: Record<string, number>;
   onPumpedOz: (v: number) => void;
   onFedOz: (v: number) => void;
   onFreezerBankOz: (v: number) => void;
@@ -29,18 +34,27 @@ export function SupplyDemandCard({
   pumpedOz,
   fedOz,
   freezerBankOz,
+  pumps = {},
+  pumpOz = {},
   onPumpedOz,
   onFedOz,
   onFreezerBankOz,
 }: Props) {
-  const todayTimes = plan.activePumpIds
+  const todaySlots = plan.activePumpIds
     .slice()
     .sort((a, b) => {
       const sa = DAILY_CLOCK.find((s) => s.id === a)?.startMin ?? 0;
       const sb = DAILY_CLOCK.find((s) => s.id === b)?.startMin ?? 0;
       return sa - sb;
     })
-    .map(pumpTimeLabel);
+    .map((id) => ({
+      id,
+      label: pumpTimeLabel(id),
+      done: !!pumps[id],
+      oz: typeof pumpOz[id] === "number" ? pumpOz[id] : undefined,
+    }));
+
+  const remaining = Math.max(0, round1(plan.demandOz - pumpedOz));
 
   return (
     <aside className="supply-card" aria-label="Supply and demand pump plan">
@@ -51,7 +65,10 @@ export function SupplyDemandCard({
 
       <p className="supply-goal">
         Daily goal <strong>{plan.demandOz} oz</strong>
-        <span className="supply-goal-sub"> · {plan.goalLabel}</span>
+        <span className="supply-goal-sub">
+          {" "}
+          · {ozToMl(plan.demandOz)} ml · {plan.goalLabel}
+        </span>
       </p>
 
       <div className="supply-nums" role="group" aria-label="Today&apos;s pump targets">
@@ -74,12 +91,24 @@ export function SupplyDemandCard({
 
       {plan.scheduleNote ? <p className="supply-schedule-note">{plan.scheduleNote}</p> : null}
 
-      {todayTimes.length > 0 ? (
+      {todaySlots.length > 0 ? (
         <div className="supply-schedule">
           <h4>Today&apos;s pump times</h4>
           <ul className="supply-schedule-list">
-            {todayTimes.map((t) => (
-              <li key={t}>{t}</li>
+            {todaySlots.map((slot) => (
+              <li
+                key={slot.id}
+                className={slot.done ? "pump-time done" : "pump-time"}
+                title={slot.done ? "Completed" : "Planned"}
+              >
+                {slot.label}
+                {slot.oz != null && slot.oz > 0 ? (
+                  <span className="pump-time-oz">
+                    {" "}
+                    · {slot.oz} oz ({ozToMl(slot.oz)} ml)
+                  </span>
+                ) : null}
+              </li>
             ))}
           </ul>
         </div>
@@ -104,9 +133,31 @@ export function SupplyDemandCard({
         ))}
       </ul>
 
+      <div className="supply-totals" role="group" aria-label="Milk totals">
+        <div className="supply-total">
+          <span className="supply-total-label">Pumped</span>
+          <strong>
+            {round1(pumpedOz)} oz · {ozToMl(pumpedOz)} ml
+          </strong>
+        </div>
+        <div className="supply-total">
+          <span className="supply-total-label">Goal</span>
+          <strong>
+            {plan.demandOz} oz · {ozToMl(plan.demandOz)} ml
+          </strong>
+        </div>
+        <div className="supply-total">
+          <span className="supply-total-label">Remaining</span>
+          <strong>
+            {remaining} oz · {ozToMl(remaining)} ml
+          </strong>
+        </div>
+      </div>
+
       <div className="supply-inputs">
         <label>
           Pumped today (oz)
+          <span className="input-ml-hint">{ozToMl(pumpedOz)} ml</span>
           <input
             type="number"
             min={0}
@@ -119,6 +170,7 @@ export function SupplyDemandCard({
         </label>
         <label>
           Baby drank today (oz)
+          <span className="input-ml-hint">{ozToMl(fedOz)} ml</span>
           <input
             type="number"
             min={0}
@@ -131,6 +183,7 @@ export function SupplyDemandCard({
         </label>
         <label>
           Freezer bank (oz)
+          <span className="input-ml-hint">{ozToMl(freezerBankOz)} ml</span>
           <input
             type="number"
             min={0}
@@ -142,6 +195,7 @@ export function SupplyDemandCard({
           />
         </label>
       </div>
+      <p className="supply-carry-note">Carries to tomorrow so you don&apos;t re-check the fridge.</p>
 
       <p className="supply-disclaimer">
         Not medical advice. Hospital / NICU feeding plans win over this chart.

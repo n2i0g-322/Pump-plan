@@ -1,6 +1,6 @@
 /** Seeded from the household PDF guide. Not medical advice. */
 
-export type SegmentKind = "sleep" | "awake" | "pump" | "eat";
+export type SegmentKind = "sleep" | "awake" | "pump" | "eat" | "rest";
 
 export type ClockSegment = {
   id: string;
@@ -31,6 +31,7 @@ export const SEGMENT_COLORS: Record<SegmentKind, string> = {
   awake: "#d9dde8", // cool grey (not yellow)
   pump: "#c2185b", // raspberry — not protein orange
   eat: "#2e7d32", // green — not carb gold
+  rest: "#c4b5fd", // muted lavender — skipped surplus pumps
 };
 
 export const DAILY_CLOCK: ClockSegment[] = [

@@ -240,7 +240,7 @@ function mergeConsecutive(segs: ClockSegment[]): ClockSegment[] {
       cur = {
         ...cur,
         endMin: next.endMin,
-        label: cur.kind === "sleep" ? "Rest / sleep" : cur.kind === "awake" ? "Rest" : cur.label,
+        label: cur.kind === "rest" ? (cur.label.startsWith("Rest") ? cur.label : "Rest") : cur.kind === "sleep" ? "Sleep" : cur.label,
         id: `${cur.id}+${next.id}`,
       };
     } else {
@@ -252,7 +252,7 @@ function mergeConsecutive(segs: ClockSegment[]): ClockSegment[] {
   return out;
 }
 
-/** Build a clock where inactive pumps become sleep (night) or awake (day). */
+/** Build a clock where inactive pumps become distinct "rest" wedges (surplus skips). */
 export function buildAdaptiveClock(activePumpIds: string[]): ClockSegment[] {
   const active = new Set(activePumpIds);
   const mapped: ClockSegment[] = DAILY_CLOCK.map((s) => {
@@ -260,10 +260,9 @@ export function buildAdaptiveClock(activePumpIds: string[]): ClockSegment[] {
       return { ...s };
     }
     const night = isNightStart(s.startMin);
-    const kind: SegmentKind = night ? "sleep" : "awake";
     return {
       ...s,
-      kind,
+      kind: "rest" as SegmentKind,
       label: night ? "Rest / sleep" : "Rest",
       id: `rest-${s.id}`,
     };

@@ -30,9 +30,24 @@ function arcPath(
   return `M ${p0.x} ${p0.y} A ${r1} ${r1} 0 ${large} 1 ${p1.x} ${p1.y} L ${p2.x} ${p2.y} A ${r0} ${r0} 0 ${large} 0 ${p3.x} ${p3.y} Z`;
 }
 
+/** Stroke-only arc for thin progress rings. */
+function strokeArc(cx: number, cy: number, r: number, a0: number, a1: number): string {
+  let span = a1 - a0;
+  while (span < 0) span += 360;
+  if (span >= 360) span = 359.99;
+  const large = span > 180 ? 1 : 0;
+  const p0 = polar(cx, cy, r, a0);
+  const p1 = polar(cx, cy, r, a0 + span);
+  return `M ${p0.x} ${p0.y} A ${r} ${r} 0 ${large} 1 ${p1.x} ${p1.y}`;
+}
+
 function minToDeg(min: number) {
   return ((min % 1440) / 1440) * 360;
 }
+
+const PUMP_ACTIVE = "#e91e63";
+const PUMP_DONE = "#2e7d32";
+const MILK_GOLD = "#e6b84d";
 
 type Props = {
   nutrients?: Record<string, number>;
@@ -42,13 +57,17 @@ type Props = {
   clock?: ClockSegment[];
   /** When set, only these pump ids get markers (inactive historical pumps omitted). */
   activePumpIds?: string[];
+  /** Completed pump session ids (green markers / wedges). */
+  completedPumpIds?: string[];
+  /** Milk progress 0–1 (pumped / demand). */
+  milkFill01?: number;
 };
 
 /**
  * Ball = today's date
  * Ring 1 (inner) = fixed daily nutrient goals
- * Ring 2 (middle) = 24h pump / eat / sleep / awake
- * Ring 3 (outer) = logged progress, hard-capped at 100% of that nutrient's goal sector
+ * Ring 2 (middle) = 24h pump / eat / sleep / awake / rest
+ * Ring 3 (outer) = logged nutrient progress + milk progress arc
  */
 export function Clock24({
   nutrients,
@@ -56,6 +75,8 @@ export function Clock24({
   onSelect,
   clock = DAILY_CLOCK,
   activePumpIds,
+  completedPumpIds,
+  milkFill01 = 0,
 }: Props) {
   const size = 380;
   const cx = size / 2;
@@ -68,15 +89,16 @@ export function Clock24({
   const rClock1 = 128;
   const rProg0 = 134;
   const rProg1 = 164;
+  const rMilk = 170;
   const rHour = 178;
 
   const activeSet = activePumpIds ? new Set(activePumpIds) : null;
+  const doneSet = new Set(completedPumpIds ?? []);
   const pumps = clock.filter((s) => {
     if (s.kind !== "pump") return false;
     if (!activeSet) return true;
     return activeSet.has(s.id);
   });
-  // Also mark original pump ids that remain active even if clock merged labels
   const markerPumps =
     activeSet != null
       ? DAILY_CLOCK.filter((s) => s.kind === "pump" && activeSet.has(s.id))
@@ -90,13 +112,28 @@ export function Clock24({
   const dayNum = String(now.getDate());
   const weekday = now.toLocaleString("en-CA", { weekday: "short" });
 
+  const milkPct = Math.max(0, Math.min(1, milkFill01));
+
   return (
     <svg
       viewBox={`0 0 ${size} ${size}`}
       className="clock24"
       role="img"
-      aria-label="Date, nutrient goals, 24-hour schedule, and progress"
+      aria-label="Date, nutrient goals, 24-hour schedule, milk progress"
     >
+      <defs>
+        <pattern
+          id="rest-hatch"
+          patternUnits="userSpaceOnUse"
+          width="6"
+          height="6"
+          patternTransform="rotate(35)"
+        >
+          <rect width="6" height="6" fill="#c4b5fd" opacity="0.55" />
+          <line x1="0" y1="0" x2="0" y2="6" stroke="#7c6bb5" strokeWidth="1.2" opacity="0.55" />
+        </pattern>
+      </defs>
+
       <circle cx={cx} cy={cy} r={rProg1 + 8} fill="#f4efe4" stroke="#1a2744" strokeWidth="2.5" />
 
       {/* RING 1 — goals */}
@@ -123,14 +160,27 @@ export function Clock24({
         const a1 = minToDeg(s.endMin);
         if (s.endMin <= s.startMin) return null;
         const dim = Boolean(highlightKind && s.kind !== highlightKind);
+        const isRest = s.kind === "rest" || s.id.includes("rest-");
+        const isPump = s.kind === "pump";
+        const pumpDone = isPump && doneSet.has(s.id);
+        const fill = isRest
+          ? "url(#rest-hatch)"
+          : pumpDone
+            ? PUMP_DONE
+            : isPump
+              ? PUMP_ACTIVE
+              : SEGMENT_COLORS[s.kind];
+        const strokeW = isPump ? 1.6 : isRest ? 1.1 : 0.7;
+        const strokeDash = isRest ? "3 2" : undefined;
         return (
           <path
             key={s.id}
             d={arcPath(cx, cy, rClock0, rClock1, a0, a1)}
-            fill={SEGMENT_COLORS[s.kind]}
+            fill={fill}
             opacity={dim ? 0.35 : 1}
-            stroke="#fffdf8"
-            strokeWidth={0.7}
+            stroke={isRest ? "#7c6bb5" : "#fffdf8"}
+            strokeWidth={strokeW}
+            strokeDasharray={strokeDash}
             className="clock-seg"
             onClick={() => onSelect?.(s)}
           >
@@ -156,16 +206,29 @@ export function Clock24({
       {markerPumps.map((p) => {
         const mid = (p.startMin + p.endMin) / 2;
         const tip = polar(cx, cy, (rClock0 + rClock1) / 2, minToDeg(mid));
+        const done = doneSet.has(p.id);
         return (
-          <circle
-            key={`pm-${p.id}`}
-            cx={tip.x}
-            cy={tip.y}
-            r={5}
-            fill="#fff"
-            stroke={SEGMENT_COLORS.pump}
-            strokeWidth={2}
-          />
+          <g key={`pm-${p.id}`}>
+            <circle
+              cx={tip.x}
+              cy={tip.y}
+              r={done ? 6.5 : 5}
+              fill={done ? PUMP_DONE : "#fff"}
+              stroke={done ? "#1b5e20" : PUMP_ACTIVE}
+              strokeWidth={2.2}
+            />
+            {done ? (
+              <circle
+                cx={tip.x}
+                cy={tip.y}
+                r={9}
+                fill="none"
+                stroke={PUMP_DONE}
+                strokeWidth={1.5}
+                opacity={0.85}
+              />
+            ) : null}
+          </g>
         );
       })}
 
@@ -196,7 +259,6 @@ export function Clock24({
       {leaves.map((leaf, i) => {
         const a0 = i * sector;
         const have = Math.max(0, nutrients?.[leaf.id] ?? 0);
-        // Never exceed this nutrient's sector (no bleed into the next)
         const pct = leaf.target > 0 ? Math.min(1, have / leaf.target) : 0;
         if (pct <= 0.002) return null;
         const a1 = a0 + (sector - 0.8) * pct;
@@ -212,6 +274,28 @@ export function Clock24({
           </path>
         );
       })}
+
+      {/* Milk progress arc (cream/gold) outside nutrient ring */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={rMilk}
+        fill="none"
+        stroke="#e8dfc8"
+        strokeWidth={5}
+        opacity={0.9}
+      />
+      {milkPct > 0.002 ? (
+        <path
+          d={strokeArc(cx, cy, rMilk, 0, 360 * milkPct)}
+          fill="none"
+          stroke={MILK_GOLD}
+          strokeWidth={5.5}
+          strokeLinecap="round"
+        >
+          <title>{`Milk progress: ${Math.round(milkPct * 100)}%`}</title>
+        </path>
+      ) : null}
 
       <circle cx={cx} cy={cy} r={rGoal1 + 2} fill="none" stroke="#1a2744" strokeWidth="1.5" opacity={0.35} />
       <circle cx={cx} cy={cy} r={rClock1 + 2} fill="none" stroke="#1a2744" strokeWidth="1.5" opacity={0.35} />
