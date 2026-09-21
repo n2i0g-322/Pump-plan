@@ -5,18 +5,46 @@ export type DayLog = {
   pumps: Record<string, boolean>;
   meals: Record<string, boolean>;
   notes: Record<string, string>;
+  /** Logged nutrient amounts keyed by nutrient id (protein, carbs, sugar, …) */
+  nutrients: Record<string, number>;
 };
 
-const STORAGE = "pump-week-logs-v1";
+const STORAGE = "pump-week-logs-v2";
 
 function emptyLog(): DayLog {
-  return { pumps: {}, meals: {}, notes: {} };
+  return { pumps: {}, meals: {}, notes: {}, nutrients: {} };
 }
 
 function loadAll(): Record<string, DayLog> {
   try {
     const raw = localStorage.getItem(STORAGE);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) {
+      // migrate v1 if present
+      const v1 = localStorage.getItem("pump-week-logs-v1");
+      if (!v1) return {};
+      const parsed = JSON.parse(v1) as Record<string, Partial<DayLog>>;
+      const next: Record<string, DayLog> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        next[k] = {
+          pumps: v.pumps ?? {},
+          meals: v.meals ?? {},
+          notes: v.notes ?? {},
+          nutrients: v.nutrients ?? {},
+        };
+      }
+      return next;
+    }
+    const parsed = JSON.parse(raw) as Record<string, Partial<DayLog>>;
+    const next: Record<string, DayLog> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      next[k] = {
+        pumps: v.pumps ?? {},
+        meals: v.meals ?? {},
+        notes: v.notes ?? {},
+        nutrients: v.nutrients ?? {},
+      };
+    }
+    return next;
   } catch {
     return {};
   }
@@ -63,6 +91,21 @@ export function useLogs() {
       notes: { ...cur.notes, [mealId]: note },
     }));
 
+  const setNutrient = (
+    year: number,
+    monthIndex: number,
+    dayId: string,
+    nutrientId: string,
+    value: number,
+  ) =>
+    patch(year, monthIndex, dayId, (cur) => ({
+      ...cur,
+      nutrients: {
+        ...cur.nutrients,
+        [nutrientId]: Number.isFinite(value) && value >= 0 ? value : 0,
+      },
+    }));
+
   const scoreDay = useCallback((log: DayLog) => {
     const pumpHit = PUMP_IDS.filter((id) => log.pumps[id]).length;
     const mealHit = EAT_IDS.filter((id) => log.meals[id]).length;
@@ -98,5 +141,5 @@ export function useLogs() {
     [all, scoreDay],
   );
 
-  return { getLog, togglePump, toggleMeal, setNote, scoreDay, bestInMonth };
+  return { getLog, togglePump, toggleMeal, setNote, setNutrient, scoreDay, bestInMonth };
 }

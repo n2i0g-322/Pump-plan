@@ -166,3 +166,125 @@ export function dayKey(year: number, monthIndex: number, dayId: string) {
   return `${year}-${monthIndex + 1}-${dayId}`;
 }
 
+
+/** Daily required nutrition targets (general lactation guide — not medical advice). */
+export type NutrientLeaf = {
+  id: string;
+  label: string;
+  unit: string;
+  /** Required daily target */
+  target: number;
+};
+
+export type NutrientGroup = {
+  id: string;
+  label: string;
+  unit: string;
+  /** Standalone target when there are no children */
+  target?: number;
+  /** Sub-nutrients that roll up into this bubble's total */
+  children?: NutrientLeaf[];
+};
+
+export const NUTRIENT_GROUPS: NutrientGroup[] = [
+  {
+    id: "calories",
+    label: "Calories",
+    unit: "kcal",
+    target: 2400,
+  },
+  {
+    id: "protein",
+    label: "Protein",
+    unit: "g",
+    target: 75,
+  },
+  {
+    id: "carbohydrates",
+    label: "Carbohydrates",
+    unit: "g",
+    children: [
+      { id: "carbs", label: "Carbs", unit: "g", target: 220 },
+      { id: "sugar", label: "Sugar", unit: "g", target: 50 },
+    ],
+  },
+  {
+    id: "fat",
+    label: "Fat",
+    unit: "g",
+    target: 70,
+  },
+  {
+    id: "calcium",
+    label: "Calcium",
+    unit: "mg",
+    target: 1000,
+  },
+  {
+    id: "fluid",
+    label: "Fluid",
+    unit: "ml",
+    target: 3000,
+  },
+];
+
+export function groupTarget(g: NutrientGroup): number {
+  if (g.children?.length) return g.children.reduce((s, c) => s + c.target, 0);
+  return g.target ?? 0;
+}
+
+
+/** Same palette on nutrient bubbles and clock slivers. */
+export const NUTRIENT_COLORS: Record<string, string> = {
+  calories: "#7c6cf0",
+  protein: "#e07a5f",
+  carbs: "#e6b84d",
+  sugar: "#f0a060",
+  carbohydrates: "#e6b84d",
+  fat: "#5b8def",
+  calcium: "#4cb5ae",
+  fluid: "#6ec1e4",
+};
+
+export function nutrientColor(id: string): string {
+  return NUTRIENT_COLORS[id] ?? "#9aa3b5";
+}
+
+/** Pump session midpoints (minutes) for ring layout. */
+export const PUMP_MARKS_MIN = DAILY_CLOCK.filter((s) => s.kind === "pump").map(
+  (s) => (s.startMin + s.endMin) / 2,
+);
+
+export type ClockGap = {
+  id: string;
+  startMin: number;
+  endMin: number;
+  night: boolean;
+};
+
+/** Gaps between consecutive pumps (wraps past midnight). */
+export function gapsBetweenPumps(): ClockGap[] {
+  const pumps = DAILY_CLOCK.filter((s) => s.kind === "pump").sort((a, b) => a.startMin - b.startMin);
+  const gaps: ClockGap[] = [];
+  for (let i = 0; i < pumps.length; i++) {
+    const cur = pumps[i];
+    const next = pumps[(i + 1) % pumps.length];
+    const start = cur.endMin;
+    let end = next.startMin;
+    if (end <= start) end += 1440;
+    const mid = ((start + end) / 2) % 1440;
+    // Three night hours: ~12am–3am window center, plus deep night tint 0–180 and 1260–1440
+    const night = mid >= 1260 || mid < 360;
+    gaps.push({ id: `gap-${cur.id}-${next.id}`, startMin: start, endMin: end, night });
+  }
+  return gaps;
+}
+
+export function allNutrientIds(): string[] {
+  const ids: string[] = [];
+  for (const g of NUTRIENT_GROUPS) {
+    if (g.children?.length) ids.push(...g.children.map((c) => c.id));
+    else ids.push(g.id);
+  }
+  return ids;
+}

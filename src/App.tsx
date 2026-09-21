@@ -8,6 +8,7 @@ import {
   YEARS,
   type DayPlan,
 } from "./data/plan";
+import { NutrientBubbles } from "./components/NutrientBubbles";
 import { useLogs, type DayLog } from "./hooks/useLogs";
 import "./App.css";
 
@@ -23,7 +24,7 @@ export default function App() {
   const [dayId, setDayId] = useState(defaultDay);
   const [mode, setMode] = useState<Mode>("day");
 
-  const { getLog, togglePump, toggleMeal, setNote, scoreDay, bestInMonth } = useLogs();
+  const { getLog, togglePump, toggleMeal, setNote, setNutrient, scoreDay, bestInMonth } = useLogs();
   const day = useMemo(() => DAYS.find((d) => d.id === dayId) ?? DAYS[0], [dayId]);
   const log = getLog(year, monthIndex, day.id);
   const score = scoreDay(log);
@@ -89,6 +90,7 @@ export default function App() {
           onTogglePump={(id) => togglePump(year, monthIndex, day.id, id)}
           onToggleMeal={(id) => toggleMeal(year, monthIndex, day.id, id)}
           onNote={(id, note) => setNote(year, monthIndex, day.id, id, note)}
+          onNutrient={(id, value) => setNutrient(year, monthIndex, day.id, id, value)}
         />
       ) : (
         <BestDayView
@@ -119,6 +121,7 @@ function DayView({
   onTogglePump,
   onToggleMeal,
   onNote,
+  onNutrient,
 }: {
   day: DayPlan;
   log: DayLog;
@@ -126,25 +129,26 @@ function DayView({
   onTogglePump: (id: string) => void;
   onToggleMeal: (id: string) => void;
   onNote: (id: string, note: string) => void;
+  onNutrient: (id: string, value: number) => void;
 }) {
   return (
     <main className="main">
       <section className="clock-panel">
         <h2>Daily pumping & eating clock</h2>
-        <Clock24 />
+        <Clock24 nutrients={log.nutrients} />
         <ul className="legend">
-          <li>
-            <span className="swatch pump" /> Pump
-          </li>
-          <li>
-            <span className="swatch eat" /> Eat / snack
-          </li>
-          <li>
-            <span className="swatch sleep" /> Sleep
-          </li>
-          <li>
-            <span className="swatch awake" /> Awake / baby care
-          </li>
+          <li><span className="swatch pump" /> Pump</li>
+          <li><span className="swatch eat" /> Eat / snack</li>
+          <li><span className="swatch sleep" /> Sleep / night</li>
+          <li><span className="swatch awake" /> Awake</li>
+        </ul>
+        <ul className="legend nutrient-legend" aria-label="Nutrient colors">
+          <li><span className="swatch" style={{ background: "#e07a5f" }} /> Protein</li>
+          <li><span className="swatch" style={{ background: "#e6b84d" }} /> Carbs</li>
+          <li><span className="swatch" style={{ background: "#f0a060" }} /> Sugar</li>
+          <li><span className="swatch" style={{ background: "#5b8def" }} /> Fat</li>
+          <li><span className="swatch" style={{ background: "#4cb5ae" }} /> Calcium</li>
+          <li><span className="swatch" style={{ background: "#6ec1e4" }} /> Fluid</li>
         </ul>
         <div className="score-chip">
           Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · {score.mealHit}/{score.mealMax} plates
@@ -173,6 +177,8 @@ function DayView({
             </button>
           ))}
         </div>
+
+        <NutrientBubbles values={log.nutrients ?? {}} onChange={onNutrient} />
 
         <h3>What to eat at each slot</h3>
         <table className="meal-table">
