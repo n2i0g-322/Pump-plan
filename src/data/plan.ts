@@ -27,10 +27,10 @@ export type DayPlan = {
 };
 
 export const SEGMENT_COLORS: Record<SegmentKind, string> = {
-  sleep: "#1a2744",
-  awake: "#d9dde6",
-  pump: "#e07a5f",
-  eat: "#e6b84d",
+  sleep: "#0b1324", // near-black navy
+  awake: "#d9dde8", // cool grey (not yellow)
+  pump: "#c2185b", // raspberry — not protein orange
+  eat: "#2e7d32", // green — not carb gold
 };
 
 export const DAILY_CLOCK: ClockSegment[] = [
@@ -235,15 +235,16 @@ export function groupTarget(g: NutrientGroup): number {
 
 
 /** Same palette on nutrient bubbles and clock slivers. */
+/** High-contrast palette — avoid neighbouring reds/oranges. */
 export const NUTRIENT_COLORS: Record<string, string> = {
-  calories: "#7c6cf0",
-  protein: "#e07a5f",
-  carbs: "#e6b84d",
-  sugar: "#f0a060",
-  carbohydrates: "#e6b84d",
-  fat: "#5b8def",
-  calcium: "#4cb5ae",
-  fluid: "#6ec1e4",
+  calories: "#6d5efc", // violet
+  protein: "#e85d04", // deep orange
+  carbs: "#f4c430", // gold
+  sugar: "#d81173", // magenta (not next to protein/carbs)
+  carbohydrates: "#f4c430",
+  fat: "#1d6fd8", // strong blue
+  calcium: "#0a9b6e", // green
+  fluid: "#00b4d8", // cyan
 };
 
 export function nutrientColor(id: string): string {
@@ -287,4 +288,17 @@ export function allNutrientIds(): string[] {
     else ids.push(g.id);
   }
   return ids;
+}
+
+/** Leaf nutrients shown on the goal / progress rings (id + daily target). */
+export function leafNutrientTargets(): { id: string; label: string; target: number; unit: string }[] {
+  const out: { id: string; label: string; target: number; unit: string }[] = [];
+  for (const g of NUTRIENT_GROUPS) {
+    if (g.children?.length) {
+      for (const c of g.children) out.push({ id: c.id, label: c.label, target: c.target, unit: c.unit });
+    } else if (g.target != null) {
+      out.push({ id: g.id, label: g.label, target: g.target, unit: g.unit });
+    }
+  }
+  return out;
 }

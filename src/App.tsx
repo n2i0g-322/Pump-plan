@@ -8,8 +8,10 @@ import {
   YEARS,
   type DayPlan,
 } from "./data/plan";
+import { MealFoodLog } from "./components/MealFoodLog";
 import { NutrientBubbles } from "./components/NutrientBubbles";
 import { useLogs, type DayLog } from "./hooks/useLogs";
+import type { MacroSet } from "./lib/nutrition";
 import "./App.css";
 
 type Mode = "day" | "best";
@@ -24,7 +26,17 @@ export default function App() {
   const [dayId, setDayId] = useState(defaultDay);
   const [mode, setMode] = useState<Mode>("day");
 
-  const { getLog, togglePump, toggleMeal, setNote, setNutrient, scoreDay, bestInMonth } = useLogs();
+  const {
+    getLog,
+    togglePump,
+    toggleMeal,
+    setNote,
+    setNutrient,
+    setFoodLog,
+    applyFoodMacros,
+    scoreDay,
+    bestInMonth,
+  } = useLogs();
   const day = useMemo(() => DAYS.find((d) => d.id === dayId) ?? DAYS[0], [dayId]);
   const log = getLog(year, monthIndex, day.id);
   const score = scoreDay(log);
@@ -91,6 +103,8 @@ export default function App() {
           onToggleMeal={(id) => toggleMeal(year, monthIndex, day.id, id)}
           onNote={(id, note) => setNote(year, monthIndex, day.id, id, note)}
           onNutrient={(id, value) => setNutrient(year, monthIndex, day.id, id, value)}
+          onFoodLog={(id, entry) => setFoodLog(year, monthIndex, day.id, id, entry)}
+          onApplyFood={(id, macros) => applyFoodMacros(year, monthIndex, day.id, id, macros)}
         />
       ) : (
         <BestDayView
@@ -122,6 +136,8 @@ function DayView({
   onToggleMeal,
   onNote,
   onNutrient,
+  onFoodLog,
+  onApplyFood,
 }: {
   day: DayPlan;
   log: DayLog;
@@ -130,6 +146,8 @@ function DayView({
   onToggleMeal: (id: string) => void;
   onNote: (id: string, note: string) => void;
   onNutrient: (id: string, value: number) => void;
+  onFoodLog: (id: string, entry: NonNullable<DayLog["foodLogs"][string]>) => void;
+  onApplyFood: (id: string, macros: MacroSet) => void;
 }) {
   return (
     <main className="main">
@@ -143,13 +161,15 @@ function DayView({
           <li><span className="swatch awake" /> Awake</li>
         </ul>
         <ul className="legend nutrient-legend" aria-label="Nutrient colors">
-          <li><span className="swatch" style={{ background: "#e07a5f" }} /> Protein</li>
-          <li><span className="swatch" style={{ background: "#e6b84d" }} /> Carbs</li>
-          <li><span className="swatch" style={{ background: "#f0a060" }} /> Sugar</li>
-          <li><span className="swatch" style={{ background: "#5b8def" }} /> Fat</li>
-          <li><span className="swatch" style={{ background: "#4cb5ae" }} /> Calcium</li>
-          <li><span className="swatch" style={{ background: "#6ec1e4" }} /> Fluid</li>
+          <li><span className="swatch" style={{ background: "#6d5efc" }} /> Calories</li>
+          <li><span className="swatch" style={{ background: "#e85d04" }} /> Protein</li>
+          <li><span className="swatch" style={{ background: "#f4c430" }} /> Carbs</li>
+          <li><span className="swatch" style={{ background: "#d81173" }} /> Sugar</li>
+          <li><span className="swatch" style={{ background: "#1d6fd8" }} /> Fat</li>
+          <li><span className="swatch" style={{ background: "#0a9b6e" }} /> Calcium</li>
+          <li><span className="swatch" style={{ background: "#00b4d8" }} /> Fluid</li>
         </ul>
+        <p className="clock-ring-hint">Inner ring = daily goal · middle = 24h clock · outer = logged progress toward each goal</p>
         <div className="score-chip">
           Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · {score.mealHit}/{score.mealMax} plates
         </div>
@@ -186,7 +206,7 @@ function DayView({
             <tr>
               <th>Done</th>
               <th>Slot</th>
-              <th>Eat this · log what you actually had</th>
+              <th>Eat this · look up serving · photos → scoreboard</th>
             </tr>
           </thead>
           <tbody>
@@ -209,9 +229,16 @@ function DayView({
                   <div className="plan-food">{m.food}</div>
                   <input
                     className="note"
-                    placeholder="What I actually ate…"
+                    placeholder="Quick note (optional)…"
                     value={log.notes[m.id] ?? ""}
                     onChange={(e) => onNote(m.id, e.target.value)}
+                  />
+                  <MealFoodLog
+                    mealId={m.id}
+                    mealTitle={`${m.label} ${m.time}`}
+                    entry={log.foodLogs?.[m.id]}
+                    onChange={onFoodLog}
+                    onApplyToScoreboard={onApplyFood}
                   />
                 </td>
               </tr>
@@ -274,15 +301,28 @@ function BestDayView({
 
         <h3>What was consumed & when</h3>
         <ul className="best-list">
-          {day.meals.map((m) => (
-            <li key={m.id} className={log.meals[m.id] ? "hit" : "miss"}>
-              <strong>
-                {m.label} {m.time}
-              </strong>
-              <span>{log.notes[m.id]?.trim() || m.food}</span>
-              <em>{log.meals[m.id] ? "logged" : "planned"}</em>
-            </li>
-          ))}
+          {day.meals.map((m) => {
+            const food = log.foodLogs?.[m.id];
+            const label =
+              food?.description?.trim() ||
+              log.notes[m.id]?.trim() ||
+              m.food;
+            return (
+              <li key={m.id} className={log.meals[m.id] ? "hit" : "miss"}>
+                <strong>
+                  {m.label} {m.time}
+                </strong>
+                <span>{label}</span>
+                {food?.applied && food.lastApplied && (
+                  <span className="best-macros">
+                    {food.lastApplied.calories} kcal · P {food.lastApplied.protein}g · C{" "}
+                    {food.lastApplied.carbs}g
+                  </span>
+                )}
+                <em>{log.meals[m.id] ? "logged" : "planned"}</em>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </main>

@@ -1,7 +1,7 @@
 import {
   DAILY_CLOCK,
   SEGMENT_COLORS,
-  gapsBetweenPumps,
+  leafNutrientTargets,
   nutrientColor,
   type ClockSegment,
 } from "../data/plan";
@@ -11,13 +11,21 @@ function polar(cx: number, cy: number, r: number, angleDeg: number) {
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
 }
 
-function arcPath(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number) {
+function arcPath(
+  cx: number,
+  cy: number,
+  r0: number,
+  r1: number,
+  a0: number,
+  a1: number,
+): string {
   let span = a1 - a0;
-  if (span < 0) span += 360;
+  while (span < 0) span += 360;
+  if (span >= 360) span = 359.99;
   const large = span > 180 ? 1 : 0;
   const p0 = polar(cx, cy, r1, a0);
-  const p1 = polar(cx, cy, r1, a1);
-  const p2 = polar(cx, cy, r0, a1);
+  const p1 = polar(cx, cy, r1, a0 + span);
+  const p2 = polar(cx, cy, r0, a0 + span);
   const p3 = polar(cx, cy, r0, a0);
   return `M ${p0.x} ${p0.y} A ${r1} ${r1} 0 ${large} 1 ${p1.x} ${p1.y} L ${p2.x} ${p2.y} A ${r0} ${r0} 0 ${large} 0 ${p3.x} ${p3.y} Z`;
 }
@@ -26,83 +34,82 @@ function minToDeg(min: number) {
   return ((min % 1440) / 1440) * 360;
 }
 
-/** Default daytime mix when nothing logged yet — still uses the global nutrient colors. */
-const DEFAULT_MIX: { id: string; weight: number }[] = [
-  { id: "protein", weight: 25 },
-  { id: "carbs", weight: 35 },
-  { id: "sugar", weight: 10 },
-  { id: "fat", weight: 20 },
-  { id: "calcium", weight: 5 },
-  { id: "fluid", weight: 5 },
-];
-
-const NIGHT_MIX: { id: string; weight: number }[] = [
-  { id: "fluid", weight: 40 },
-  { id: "protein", weight: 20 },
-  { id: "carbs", weight: 20 },
-  { id: "calcium", weight: 10 },
-  { id: "fat", weight: 10 },
-];
-
-function mixFromLog(nutrients: Record<string, number> | undefined, night: boolean) {
-  const ids = ["protein", "carbs", "sugar", "fat", "calcium", "fluid"];
-  const logged = ids
-    .map((id) => ({ id, weight: Math.max(0, nutrients?.[id] ?? 0) }))
-    .filter((x) => x.weight > 0);
-  if (logged.length) return logged;
-  return night ? NIGHT_MIX : DEFAULT_MIX;
-}
-
 type Props = {
   nutrients?: Record<string, number>;
   highlightKind?: string | null;
   onSelect?: (seg: ClockSegment) => void;
 };
 
+/**
+ * Ball = today's date
+ * Ring 1 (inner) = fixed daily nutrient goals
+ * Ring 2 (middle) = 24h pump / eat / sleep / awake
+ * Ring 3 (outer) = logged progress, hard-capped at 100% of that nutrient's goal sector
+ */
 export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
-  const size = 320;
+  const size = 380;
   const cx = size / 2;
   const cy = size / 2;
-  const rOuter = 148;
-  const rMid = 118;
-  const rNutOuter = 112;
-  const rNutInner = 78;
-  const rInner = 70;
 
-  const gaps = gapsBetweenPumps();
+  const rHub = 50;
+  const rGoal0 = 54;
+  const rGoal1 = 86;
+  const rClock0 = 92;
+  const rClock1 = 128;
+  const rProg0 = 134;
+  const rProg1 = 164;
+  const rHour = 178;
+
   const pumps = DAILY_CLOCK.filter((s) => s.kind === "pump");
+  const leaves = leafNutrientTargets();
+  const sector = 360 / Math.max(leaves.length, 1);
 
-  // Night band: three overnight hours around 12am / 3am / ~pre-dawn (0–180 min) + late evening sleep
-  const nightBands = [
-    { start: 0, end: 180 }, // 12am–3am (first night block)
-    { start: 180, end: 360 }, // 3am–6am (second)
-    { start: 1320, end: 1440 }, // 10pm–12am feel / third night sleep wedge into midnight
-  ];
+  const now = new Date();
+  const monthShort = now.toLocaleString("en-CA", { month: "short" });
+  const dayNum = String(now.getDate());
+  const weekday = now.toLocaleString("en-CA", { weekday: "short" });
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="clock24" role="img" aria-label="24 hour pumping clock with nutrient slivers">
-      <defs>
-        <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodOpacity="0.25" />
-        </filter>
-      </defs>
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      className="clock24"
+      role="img"
+      aria-label="Date, nutrient goals, 24-hour schedule, and progress"
+    >
+      <circle cx={cx} cy={cy} r={rProg1 + 8} fill="#f4efe4" stroke="#1a2744" strokeWidth="2.5" />
 
-      <circle cx={cx} cy={cy} r={rOuter + 3} fill="#f7f1e6" stroke="#1a2744" strokeWidth="2" />
+      {/* RING 1 — goals */}
+      {leaves.map((leaf, i) => {
+        const a0 = i * sector;
+        const a1 = a0 + sector - 0.8;
+        return (
+          <path
+            key={`goal-${leaf.id}`}
+            d={arcPath(cx, cy, rGoal0, rGoal1, a0, a1)}
+            fill={nutrientColor(leaf.id)}
+            stroke="#1a2744"
+            strokeWidth={0.45}
+            opacity={0.95}
+          >
+            <title>{`Goal · ${leaf.label}: ${leaf.target} ${leaf.unit}`}</title>
+          </path>
+        );
+      })}
 
-      {/* Base day ring */}
+      {/* RING 2 — clock only */}
       {DAILY_CLOCK.map((s) => {
         const a0 = minToDeg(s.startMin);
         const a1 = minToDeg(s.endMin);
         if (s.endMin <= s.startMin) return null;
-        const dim = highlightKind && s.kind !== highlightKind;
+        const dim = Boolean(highlightKind && s.kind !== highlightKind);
         return (
           <path
             key={s.id}
-            d={arcPath(cx, cy, rMid, rOuter, a0, a1)}
+            d={arcPath(cx, cy, rClock0, rClock1, a0, a1)}
             fill={SEGMENT_COLORS[s.kind]}
-            opacity={dim ? 0.4 : s.kind === "awake" ? 0.85 : 1}
-            stroke="#fff"
-            strokeWidth={0.5}
+            opacity={dim ? 0.35 : 1}
+            stroke="#fffdf8"
+            strokeWidth={0.7}
             className="clock-seg"
             onClick={() => onSelect?.(s)}
           >
@@ -111,87 +118,109 @@ export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
         );
       })}
 
-      {/* Darker night tint over three night spans */}
-      {nightBands.map((b, i) => (
-        <path
-          key={`night-${i}`}
-          d={arcPath(cx, cy, rInner - 4, rOuter + 1, minToDeg(b.start), minToDeg(b.end))}
-          fill="#0d1528"
-          opacity={0.28}
-          pointerEvents="none"
-        />
-      ))}
+      {/* Soft night wash overnight */}
+      <path
+        d={arcPath(cx, cy, rClock0, rClock1, minToDeg(0), minToDeg(360))}
+        fill="#050a14"
+        opacity={0.18}
+        pointerEvents="none"
+      />
+      <path
+        d={arcPath(cx, cy, rClock0, rClock1, minToDeg(1320), minToDeg(1440))}
+        fill="#050a14"
+        opacity={0.2}
+        pointerEvents="none"
+      />
 
-      {/* Nutrient pie slivers in the gaps between pumps (inner ring) */}
-      {gaps.map((gap) => {
-        const start = gap.startMin;
-        const end = gap.endMin;
-        const spanMin = end - start;
-        const mix = mixFromLog(nutrients, gap.night);
-        const total = mix.reduce((s, m) => s + m.weight, 0) || 1;
-        let cursor = start;
-        return mix.map((m) => {
-          const slice = (m.weight / total) * spanMin;
-          const a0 = minToDeg(cursor);
-          const a1 = minToDeg(cursor + slice);
-          cursor += slice;
-          return (
-            <path
-              key={`${gap.id}-${m.id}`}
-              d={arcPath(cx, cy, rNutInner, rNutOuter, a0, a1)}
-              fill={nutrientColor(m.id)}
-              stroke="#fffdf8"
-              strokeWidth={0.4}
-              opacity={gap.night ? 0.75 : 0.95}
-              pointerEvents="none"
-            >
-              <title>{`${m.id} between pumps`}</title>
-            </path>
-          );
-        });
-      })}
-
-      {/* Pump markers on outer edge */}
       {pumps.map((p) => {
         const mid = (p.startMin + p.endMin) / 2;
-        const ang = minToDeg(mid);
-        const tip = polar(cx, cy, rOuter - 4, ang);
+        const tip = polar(cx, cy, (rClock0 + rClock1) / 2, minToDeg(mid));
         return (
-          <circle key={`pm-${p.id}`} cx={tip.x} cy={tip.y} r={4} fill={SEGMENT_COLORS.pump} stroke="#fff" strokeWidth={1.2} />
+          <circle
+            key={`pm-${p.id}`}
+            cx={tip.x}
+            cy={tip.y}
+            r={5}
+            fill="#fff"
+            stroke={SEGMENT_COLORS.pump}
+            strokeWidth={2}
+          />
         );
       })}
 
-      {/* Hub */}
-      <circle cx={cx} cy={cy} r={rInner - 2} fill="#fffdf8" stroke="#1a2744" strokeWidth="1.5" />
+      {/* RING 3 — progress (outer), empty track always visible */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={(rProg0 + rProg1) / 2}
+        fill="none"
+        stroke="#bdb5a6"
+        strokeWidth={rProg1 - rProg0}
+        opacity={0.65}
+      />
+      {leaves.map((leaf, i) => {
+        const a0 = i * sector;
+        const a1 = a0 + sector - 0.8;
+        return (
+          <path
+            key={`track-${leaf.id}`}
+            d={arcPath(cx, cy, rProg0, rProg1, a0, a1)}
+            fill="#d8d2c4"
+            stroke="#1a2744"
+            strokeWidth={0.35}
+            opacity={0.9}
+          />
+        );
+      })}
+      {leaves.map((leaf, i) => {
+        const a0 = i * sector;
+        const have = Math.max(0, nutrients?.[leaf.id] ?? 0);
+        // Never exceed this nutrient's sector (no bleed into the next)
+        const pct = leaf.target > 0 ? Math.min(1, have / leaf.target) : 0;
+        if (pct <= 0.002) return null;
+        const a1 = a0 + (sector - 0.8) * pct;
+        return (
+          <path
+            key={`prog-${leaf.id}`}
+            d={arcPath(cx, cy, rProg0, rProg1, a0, a1)}
+            fill={nutrientColor(leaf.id)}
+            stroke="#fffdf8"
+            strokeWidth={0.5}
+          >
+            <title>{`${leaf.label}: ${Math.round(have)} / ${leaf.target} ${leaf.unit} (${Math.round(pct * 100)}%)`}</title>
+          </path>
+        );
+      })}
 
-      {/* Moon for night — sits in the deep overnight sector (~1:30am) */}
-      <g transform={`translate(${polar(cx, cy, 42, minToDeg(90)).x}, ${polar(cx, cy, 42, minToDeg(90)).y})`} filter="url(#soft)">
-        <circle cx="0" cy="0" r="11" fill="#e8eef8" />
-        <circle cx="4" cy="-2" r="9" fill="#fffdf8" />
-        <circle cx="-3" cy="2" r="1.2" fill="#c5d0e6" opacity="0.7" />
-        <circle cx="2" cy="4" r="0.9" fill="#c5d0e6" opacity="0.55" />
-      </g>
+      <circle cx={cx} cy={cy} r={rGoal1 + 2} fill="none" stroke="#1a2744" strokeWidth="1.5" opacity={0.35} />
+      <circle cx={cx} cy={cy} r={rClock1 + 2} fill="none" stroke="#1a2744" strokeWidth="1.5" opacity={0.35} />
 
-      <text x={cx} y={cy + 28} textAnchor="middle" className="clock-center-title">
-        24h
+      {/* BALL — date */}
+      <circle cx={cx} cy={cy} r={rHub} fill="#fffdf8" stroke="#1a2744" strokeWidth="2" />
+      <text x={cx} y={cy - 10} textAnchor="middle" className="clock-center-sub">
+        {weekday}
       </text>
-      <text x={cx} y={cy + 44} textAnchor="middle" className="clock-center-sub">
-        nutrients between pumps
+      <text x={cx} y={cy + 10} textAnchor="middle" className="clock-center-title">
+        {monthShort} {dayNum}
+      </text>
+      <text x={cx} y={cy + 26} textAnchor="middle" className="clock-center-sub">
+        {now.getFullYear()}
       </text>
 
+      {Array.from({ length: 24 }, (_, h) => {
+        const ang = (h / 24) * 360;
+        const t0 = polar(cx, cy, rProg1 + 2, ang);
+        const t1 = polar(cx, cy, rProg1 + (h % 3 === 0 ? 9 : 5), ang);
+        return (
+          <line key={`tick-${h}`} x1={t0.x} y1={t0.y} x2={t1.x} y2={t1.y} className="clock-tick" />
+        );
+      })}
       {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => {
         const ang = (h / 24) * 360;
-        const lab = polar(cx, cy, 136, ang);
+        const lab = polar(cx, cy, rHour, ang);
         const label = h === 0 ? "12a" : h === 12 ? "12p" : String(h > 12 ? h - 12 : h);
-        const nightHour = h === 0 || h === 3 || h === 21;
         return (
-          <text
-            key={h}
-            x={lab.x}
-            y={lab.y + 3}
-            textAnchor="middle"
-            className={nightHour ? "clock-hour night-hour" : "clock-hour"}
-          >
+          <text key={`h-${h}`} x={lab.x} y={lab.y + 4} textAnchor="middle" className="clock-hour">
             {label}
           </text>
         );
