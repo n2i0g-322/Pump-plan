@@ -205,7 +205,11 @@ function DayView({
     <main className="main">
       <section className="clock-panel">
         <h2>Daily pumping & eating clock</h2>
-        <Clock24 nutrients={log.nutrients} />
+        <Clock24
+          nutrients={log.nutrients}
+          clock={supplyPlan.adaptiveClock}
+          activePumpIds={supplyPlan.activePumpIds}
+        />
         <ul className="legend">
           <li><span className="swatch pump" /> Pump</li>
           <li><span className="swatch eat" /> Eat / snack</li>
@@ -223,12 +227,12 @@ function DayView({
         </ul>
         <p className="clock-ring-hint">Inner ring = daily goal · middle = 24h clock · outer = logged progress toward each goal</p>
         <div className="score-chip">
-          Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · {score.mealHit}/{score.mealMax} plates
+          Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · every ~{supplyPlan.intervalHours} h · {score.mealHit}/{score.mealMax} plates
         </div>
         <MilkBottleBuddy
           fill={bottleFill}
           label={bottleLabel}
-          ozHint={`${supplyPlan.ozPerSession} oz × ${supplyPlan.sessions} · ${babyStage.interval}`}
+          ozHint={`${supplyPlan.ozPerSession} oz × ${supplyPlan.sessions} · every ~${supplyPlan.intervalHours} h`}
         />
         <aside className="baby-feed-card">
           <h3>Baby milk guide</h3>
@@ -237,7 +241,7 @@ function DayView({
           </p>
           <ul>
             <li>About <strong>{babyStage.ozPerFeed}</strong> per feed</li>
-            <li><strong>{babyStage.feedsPerDay}</strong> feeds / day ({babyStage.interval})</li>
+            <li><strong>{babyStage.feedsPerDay}</strong> feeds / day (every ~{supplyPlan.intervalHours} h · stage {babyStage.interval})</li>
             <li>{babyStage.notes}</li>
           </ul>
           <p className="baby-feed-disclaimer">
@@ -271,7 +275,7 @@ function DayView({
 
         <h3>Log pumps (tap to check)</h3>
         <p className="pump-plan-hint">
-          Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each
+          Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each · every ~{supplyPlan.intervalHours} h
         </p>
         <div className="check-grid">
           {supplyPlan.activePumpIds.map((id) => {

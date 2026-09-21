@@ -744,6 +744,41 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   line-height: 1.4;
   color: #2f3a52;
 }
+.supply-schedule-note {
+  margin: 0 0 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  background: #f3eefc;
+  border: 1px solid #d4c8f0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #3a2f62;
+}
+.supply-schedule {
+  margin: 0 0 0.5rem;
+}
+.supply-schedule h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  color: #1a2744;
+}
+.supply-schedule-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.supply-schedule-list li {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: #fce4ec;
+  color: #880e4f;
+  border: 1px solid #f48fb1;
+}
 .supply-rest {
   margin: 0 0 0.5rem;
   padding: 0.45rem 0.55rem;

@@ -1,3 +1,4 @@
+import { DAILY_CLOCK } from "../data/plan";
 import type { SupplyPlan } from "../lib/supplyDemand";
 
 type Props = {
@@ -16,6 +17,13 @@ function modeLabel(mode: SupplyPlan["mode"]): string {
   return "steady";
 }
 
+function pumpTimeLabel(id: string): string {
+  return (
+    DAILY_CLOCK.find((s) => s.id === id)?.label.replace(/^Pump\s+/i, "") ??
+    id.replace("pump-", "")
+  );
+}
+
 export function SupplyDemandCard({
   plan,
   pumpedOz,
@@ -25,6 +33,15 @@ export function SupplyDemandCard({
   onFedOz,
   onFreezerBankOz,
 }: Props) {
+  const todayTimes = plan.activePumpIds
+    .slice()
+    .sort((a, b) => {
+      const sa = DAILY_CLOCK.find((s) => s.id === a)?.startMin ?? 0;
+      const sb = DAILY_CLOCK.find((s) => s.id === b)?.startMin ?? 0;
+      return sa - sb;
+    })
+    .map(pumpTimeLabel);
+
   return (
     <aside className="supply-card" aria-label="Supply and demand pump plan">
       <div className="supply-head">
@@ -54,6 +71,19 @@ export function SupplyDemandCard({
           <span>interval</span>
         </div>
       </div>
+
+      {plan.scheduleNote ? <p className="supply-schedule-note">{plan.scheduleNote}</p> : null}
+
+      {todayTimes.length > 0 ? (
+        <div className="supply-schedule">
+          <h4>Today&apos;s pump times</h4>
+          <ul className="supply-schedule-list">
+            {todayTimes.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <p className="supply-break">{plan.breakRule}</p>
 

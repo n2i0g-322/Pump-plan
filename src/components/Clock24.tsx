@@ -38,6 +38,10 @@ type Props = {
   nutrients?: Record<string, number>;
   highlightKind?: string | null;
   onSelect?: (seg: ClockSegment) => void;
+  /** Adaptive middle-ring schedule (defaults to static DAILY_CLOCK). */
+  clock?: ClockSegment[];
+  /** When set, only these pump ids get markers (inactive historical pumps omitted). */
+  activePumpIds?: string[];
 };
 
 /**
@@ -46,7 +50,13 @@ type Props = {
  * Ring 2 (middle) = 24h pump / eat / sleep / awake
  * Ring 3 (outer) = logged progress, hard-capped at 100% of that nutrient's goal sector
  */
-export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
+export function Clock24({
+  nutrients,
+  highlightKind,
+  onSelect,
+  clock = DAILY_CLOCK,
+  activePumpIds,
+}: Props) {
   const size = 380;
   const cx = size / 2;
   const cy = size / 2;
@@ -60,7 +70,18 @@ export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
   const rProg1 = 164;
   const rHour = 178;
 
-  const pumps = DAILY_CLOCK.filter((s) => s.kind === "pump");
+  const activeSet = activePumpIds ? new Set(activePumpIds) : null;
+  const pumps = clock.filter((s) => {
+    if (s.kind !== "pump") return false;
+    if (!activeSet) return true;
+    return activeSet.has(s.id);
+  });
+  // Also mark original pump ids that remain active even if clock merged labels
+  const markerPumps =
+    activeSet != null
+      ? DAILY_CLOCK.filter((s) => s.kind === "pump" && activeSet.has(s.id))
+      : pumps;
+
   const leaves = leafNutrientTargets();
   const sector = 360 / Math.max(leaves.length, 1);
 
@@ -96,8 +117,8 @@ export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
         );
       })}
 
-      {/* RING 2 — clock only */}
-      {DAILY_CLOCK.map((s) => {
+      {/* RING 2 — adaptive clock */}
+      {clock.map((s) => {
         const a0 = minToDeg(s.startMin);
         const a1 = minToDeg(s.endMin);
         if (s.endMin <= s.startMin) return null;
@@ -132,7 +153,7 @@ export function Clock24({ nutrients, highlightKind, onSelect }: Props) {
         pointerEvents="none"
       />
 
-      {pumps.map((p) => {
+      {markerPumps.map((p) => {
         const mid = (p.startMin + p.endMin) / 2;
         const tip = polar(cx, cy, (rClock0 + rClock1) / 2, minToDeg(mid));
         return (
