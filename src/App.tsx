@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import { Clock24 } from "./components/Clock24";
+import { MilkBottleBuddy } from "./components/MilkBottleBuddy";
 import {
   DAYS,
   MONTHS,
   NON_NEGOTIABLES,
   PUMP_IDS,
   YEARS,
+  babyAgeDays,
+  babyFeedStageForAge,
   type DayPlan,
 } from "./data/plan";
 import { MealFoodLog } from "./components/MealFoodLog";
@@ -149,6 +152,9 @@ function DayView({
   onFoodLog: (id: string, entry: NonNullable<DayLog["foodLogs"][string]>) => void;
   onApplyFood: (id: string, macros: MacroSet) => void;
 }) {
+  const babyDays = babyAgeDays();
+  const babyStage = babyFeedStageForAge(babyDays);
+
   return (
     <main className="main">
       <section className="clock-panel">
@@ -173,6 +179,25 @@ function DayView({
         <div className="score-chip">
           Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · {score.mealHit}/{score.mealMax} plates
         </div>
+        <MilkBottleBuddy
+          fill={score.pumpMax ? score.pumpHit / score.pumpMax : 0}
+          label={`${score.pumpHit} / ${score.pumpMax} pumps today`}
+          ozHint={`${babyStage.ozPerFeed} per feed · ${babyStage.feedsPerDay}× / day · ${babyStage.interval}`}
+        />
+        <aside className="baby-feed-card">
+          <h3>Baby milk guide</h3>
+          <p className="baby-feed-age">
+            Born Sep 13, 2026 · day {babyDays} · <strong>{babyStage.label}</strong>
+          </p>
+          <ul>
+            <li>About <strong>{babyStage.ozPerFeed}</strong> per feed</li>
+            <li><strong>{babyStage.feedsPerDay}</strong> feeds / day ({babyStage.interval})</li>
+            <li>{babyStage.notes}</li>
+          </ul>
+          <p className="baby-feed-disclaimer">
+            General chart from Parents.com age guide — not medical advice. Premature / NICU plans from the hospital come first.
+          </p>
+        </aside>
       </section>
 
       <section className="detail-panel">

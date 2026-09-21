@@ -545,3 +545,65 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   text-align: center;
   line-height: 1.35;
 }
+
+
+
+.baby-feed-card {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  background: #fff8ee;
+  border: 1.5px solid #e6d5b8;
+  text-align: left;
+}
+.baby-feed-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  color: var(--navy, #1a2744);
+}
+.baby-feed-age {
+  margin: 0 0 0.45rem;
+  font-size: 0.85rem;
+}
+.baby-feed-card ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.baby-feed-disclaimer {
+  margin: 0.55rem 0 0;
+  font-size: 0.72rem;
+  color: #7a6a55;
+  line-height: 1.35;
+}
+
+
+/* Anime baby + giant fillable bottle */
+.milk-buddy {
+  margin: 0.85rem auto 0.4rem;
+  max-width: 340px;
+  text-align: center;
+}
+.milk-buddy-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 4px 10px rgba(26, 39, 68, 0.12));
+}
+.milk-buddy-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted, #5a6478);
+}
+.milk-buddy-caption strong {
+  color: var(--navy, #1a2744);
+  font-size: 1rem;
+}
+.milk-buddy-oz {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
