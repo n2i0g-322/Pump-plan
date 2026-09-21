@@ -195,7 +195,7 @@ export function SupplyDemandCard({
           />
         </label>
       </div>
-      <p className="supply-carry-note">Carries to tomorrow so you don&apos;t re-check the fridge.</p>
+      <p className="supply-carry-note">Only the freezer bank carries to tomorrow — baby drank resets each day.</p>
 
       <p className="supply-disclaimer">
         Not medical advice. Hospital / NICU feeding plans win over this chart.

@@ -3,6 +3,11 @@ import { Clock24 } from "./components/Clock24";
 import { MilkBottleBuddy } from "./components/MilkBottleBuddy";
 import { SupplyDemandCard } from "./components/SupplyDemandCard";
 import { MotivationTipsCard } from "./components/MotivationTipsCard";
+import { OverviewPanel } from "./components/OverviewPanel";
+import { BabyProfileView } from "./components/BabyProfileView";
+import { FormulaFeeds } from "./components/FormulaFeeds";
+import { MealFoodLog } from "./components/MealFoodLog";
+import { NutrientBubbles } from "./components/NutrientBubbles";
 import {
   DAYS,
   DAILY_CLOCK,
@@ -14,15 +19,16 @@ import {
   babyFeedStageForAge,
   type DayPlan,
 } from "./data/plan";
-import { MealFoodLog } from "./components/MealFoodLog";
-import { NutrientBubbles } from "./components/NutrientBubbles";
-import { useLogs, type DayLog } from "./hooks/useLogs";
+import { useLogs, type DayLog, type FormulaLogEntry } from "./hooks/useLogs";
+import { useSettings } from "./hooks/useSettings";
 import { planSupplyDemand } from "./lib/supplyDemand";
+import { formulaMacrosForOz } from "./lib/formula";
 import { ozToMl } from "./lib/units";
 import type { MacroSet } from "./lib/nutrition";
+import type { MealFoodEntry } from "./components/MealFoodLog";
 import "./App.css";
 
-type Mode = "day" | "best";
+type Mode = "day" | "overview" | "best" | "baby";
 
 export default function App() {
   const now = new Date();
@@ -33,6 +39,8 @@ export default function App() {
   const defaultDay = DAYS[weekday === 0 ? 6 : weekday - 1].id;
   const [dayId, setDayId] = useState(defaultDay);
   const [mode, setMode] = useState<Mode>("day");
+
+  const { settings, update: updateSettings } = useSettings();
 
   const {
     getLog,
@@ -46,19 +54,24 @@ export default function App() {
     setPumpedOz,
     setFedOz,
     setFreezerBankOz,
+    setFormulaLog,
+    addFormulaFeed,
+    removeFormulaFeed,
+    toggleFormulaFeed,
     ensureDaySeeded,
     scoreDay,
     bestInMonth,
   } = useLogs();
 
   const day = useMemo(() => DAYS.find((d) => d.id === dayId) ?? DAYS[0], [dayId]);
+  const showFormula = settings.feedingMode === "formula" || settings.feedingMode === "mixed";
 
   useEffect(() => {
     if (mode === "day") ensureDaySeeded(year, monthIndex, day.id);
   }, [mode, year, monthIndex, day.id, ensureDaySeeded]);
 
   const log = getLog(year, monthIndex, day.id);
-  const babyDays = babyAgeDays();
+  const babyDays = babyAgeDays(new Date(), settings.birthDate);
   const babyStage = babyFeedStageForAge(babyDays);
   const supplyPlan = useMemo(
     () =>
@@ -75,7 +88,7 @@ export default function App() {
   const best = bestInMonth(year, monthIndex);
 
   return (
-    <div className="app">
+    <div className={`app app-sex-${settings.sex}`}>
       <header className="top">
         <div>
           <p className="eyebrow">Pumping & eating week · same 24-hour clock</p>
@@ -105,7 +118,7 @@ export default function App() {
         ))}
       </nav>
 
-      <nav className="tabs day-tabs" aria-label="Day and Best Day">
+      <nav className="tabs day-tabs mode-tabs" aria-label="Day and views">
         <div className="day-row">
           {DAYS.map((d) => (
             <button
@@ -121,9 +134,29 @@ export default function App() {
             </button>
           ))}
         </div>
-        <button type="button" className={mode === "best" ? "tab best active" : "tab best"} onClick={() => setMode("best")}>
-          ★ Best Day
-        </button>
+        <div className="view-row">
+          <button
+            type="button"
+            className={mode === "overview" ? "tab view active" : "tab view"}
+            onClick={() => setMode("overview")}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={mode === "best" ? "tab best active" : "tab best"}
+            onClick={() => setMode("best")}
+          >
+            ★ Best Day
+          </button>
+          <button
+            type="button"
+            className={mode === "baby" ? "tab view active" : "tab view"}
+            onClick={() => setMode("baby")}
+          >
+            Baby profile
+          </button>
+        </div>
       </nav>
 
       {mode === "day" ? (
@@ -134,6 +167,8 @@ export default function App() {
           supplyPlan={supplyPlan}
           babyDays={babyDays}
           babyStage={babyStage}
+          birthDate={settings.birthDate}
+          showFormula={showFormula}
           onTogglePump={(id) => togglePump(year, monthIndex, day.id, id, supplyPlan.ozPerSession)}
           onPumpOz={(id, oz) => setPumpOz(year, monthIndex, day.id, id, oz)}
           onToggleMeal={(id) => toggleMeal(year, monthIndex, day.id, id)}
@@ -144,7 +179,25 @@ export default function App() {
           onPumpedOz={(v) => setPumpedOz(year, monthIndex, day.id, v)}
           onFedOz={(v) => setFedOz(year, monthIndex, day.id, v)}
           onFreezerBankOz={(v) => setFreezerBankOz(year, monthIndex, day.id, v)}
+          onAddFormula={() => addFormulaFeed(year, monthIndex, day.id)}
+          onFormulaChange={(id, entry) => setFormulaLog(year, monthIndex, day.id, id, entry)}
+          onRemoveFormula={(id) => removeFormulaFeed(year, monthIndex, day.id, id)}
+          onToggleFormula={(id) => toggleFormulaFeed(year, monthIndex, day.id, id)}
+          onOpenBaby={() => setMode("baby")}
         />
+      ) : mode === "overview" ? (
+        <main className="main overview-main">
+          <OverviewPanel
+            year={year}
+            monthIndex={monthIndex}
+            monthName={MONTHS[monthIndex]}
+            getLog={getLog}
+            showFormula={showFormula}
+            sex={settings.sex}
+          />
+        </main>
+      ) : mode === "baby" ? (
+        <BabyProfileView settings={settings} onChange={updateSettings} />
       ) : (
         <BestDayView
           year={year}
@@ -167,6 +220,12 @@ export default function App() {
   );
 }
 
+function formatBirthShort(iso: string): string {
+  const d = new Date(iso + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function DayView({
   day,
   log,
@@ -174,6 +233,8 @@ function DayView({
   supplyPlan,
   babyDays,
   babyStage,
+  birthDate,
+  showFormula,
   onTogglePump,
   onPumpOz,
   onToggleMeal,
@@ -184,6 +245,11 @@ function DayView({
   onPumpedOz,
   onFedOz,
   onFreezerBankOz,
+  onAddFormula,
+  onFormulaChange,
+  onRemoveFormula,
+  onToggleFormula,
+  onOpenBaby,
 }: {
   day: DayPlan;
   log: DayLog;
@@ -191,16 +257,23 @@ function DayView({
   supplyPlan: ReturnType<typeof planSupplyDemand>;
   babyDays: number;
   babyStage: ReturnType<typeof babyFeedStageForAge>;
+  birthDate: string;
+  showFormula: boolean;
   onTogglePump: (id: string) => void;
   onPumpOz: (id: string, oz: number) => void;
   onToggleMeal: (id: string) => void;
   onNote: (id: string, note: string) => void;
   onNutrient: (id: string, value: number) => void;
-  onFoodLog: (id: string, entry: NonNullable<DayLog["foodLogs"][string]>) => void;
+  onFoodLog: (id: string, entry: MealFoodEntry) => void;
   onApplyFood: (id: string, macros: MacroSet) => void;
   onPumpedOz: (v: number) => void;
   onFedOz: (v: number) => void;
   onFreezerBankOz: (v: number) => void;
+  onAddFormula: () => void;
+  onFormulaChange: (id: string, entry: FormulaLogEntry) => void;
+  onRemoveFormula: (id: string) => void;
+  onToggleFormula: (id: string) => void;
+  onOpenBaby: () => void;
 }) {
   const bottleFill =
     log.pumpedOz > 0 && supplyPlan.demandOz > 0
@@ -214,8 +287,7 @@ function DayView({
       : `${score.pumpHit} / ${score.pumpMax} pumps today`;
 
   const completedPumpIds = supplyPlan.activePumpIds.filter((id) => log.pumps[id]);
-  const milkFill01 =
-    supplyPlan.demandOz > 0 ? Math.min(1, Math.max(0, log.pumpedOz / supplyPlan.demandOz)) : 0;
+  const formulaMacros = formulaMacrosForOz(log.formulaOz ?? 0);
 
   return (
     <main className="main">
@@ -226,13 +298,16 @@ function DayView({
           clock={supplyPlan.adaptiveClock}
           activePumpIds={supplyPlan.activePumpIds}
           completedPumpIds={completedPumpIds}
-          milkFill01={milkFill01}
+          breastOz={log.pumpedOz ?? 0}
+          formulaOz={showFormula ? log.formulaOz ?? 0 : 0}
+          demandOz={supplyPlan.demandOz}
         />
         <ul className="legend">
           <li><span className="swatch pump" /> Pump</li>
           <li><span className="swatch rest" /> Rest</li>
           <li><span className="swatch done" /> Done (green)</li>
-          <li><span className="swatch milk" /> Milk progress</li>
+          <li><span className="swatch milk-breast" /> Breast / pumped</li>
+          <li><span className="swatch milk-formula" /> Formula</li>
           <li><span className="swatch eat" /> Eat / snack</li>
           <li><span className="swatch sleep" /> Sleep / night</li>
           <li><span className="swatch awake" /> Awake</li>
@@ -247,10 +322,12 @@ function DayView({
           <li><span className="swatch" style={{ background: "#00b4d8" }} /> Fluid</li>
         </ul>
         <p className="clock-ring-hint">
-          Inner ring = daily goal · middle = 24h clock (pump / rest) · outer = nutrients · gold arc = milk progress
+          Inner ring = daily goal · middle = 24h clock · outer = nutrients · milk arc: white =
+          breast/pumped, purple = formula (hard-capped at 100% of demand)
         </p>
         <div className="score-chip">
-          Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · every ~{supplyPlan.intervalHours} h · {score.mealHit}/{score.mealMax} plates
+          Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · every ~
+          {supplyPlan.intervalHours} h · {score.mealHit}/{score.mealMax} plates
         </div>
         <MilkBottleBuddy
           fill={bottleFill}
@@ -260,15 +337,24 @@ function DayView({
         <aside className="baby-feed-card">
           <h3>Baby milk guide</h3>
           <p className="baby-feed-age">
-            Born Sep 13, 2026 · day {babyDays} · <strong>{babyStage.label}</strong>
+            Born {formatBirthShort(birthDate)} · day {babyDays} · <strong>{babyStage.label}</strong>
           </p>
           <ul>
-            <li>About <strong>{babyStage.ozPerFeed}</strong> per feed</li>
-            <li><strong>{babyStage.feedsPerDay}</strong> feeds / day (every ~{supplyPlan.intervalHours} h · stage {babyStage.interval})</li>
+            <li>
+              About <strong>{babyStage.ozPerFeed}</strong> per feed
+            </li>
+            <li>
+              <strong>{babyStage.feedsPerDay}</strong> feeds / day (every ~
+              {supplyPlan.intervalHours} h · stage {babyStage.interval})
+            </li>
             <li>{babyStage.notes}</li>
           </ul>
+          <button type="button" className="open-baby-link" onClick={onOpenBaby}>
+            Edit baby profile →
+          </button>
           <p className="baby-feed-disclaimer">
-            General chart from Parents.com age guide — not medical advice. Premature / NICU plans from the hospital come first.
+            General age chart — not medical advice. Premature / NICU plans from the hospital come
+            first.
           </p>
         </aside>
         <SupplyDemandCard
@@ -282,6 +368,16 @@ function DayView({
           onFedOz={onFedOz}
           onFreezerBankOz={onFreezerBankOz}
         />
+        {showFormula && (log.formulaOz ?? 0) > 0 ? (
+          <aside className="formula-contrib" aria-label="Formula nutrient contribution">
+            <h3>Formula contribution</h3>
+            <p>
+              {log.formulaOz} oz · ≈ {formulaMacros.calories} kcal · P {formulaMacros.protein}g · C{" "}
+              {formulaMacros.carbs}g · F {formulaMacros.fat}g · Ca {formulaMacros.calcium}mg
+            </p>
+            <p className="formula-contrib-hint">Folded into the nutrient scoreboard (approximate).</p>
+          </aside>
+        ) : null}
         <MotivationTipsCard />
       </section>
 
@@ -300,8 +396,8 @@ function DayView({
 
         <h3>Log pumps (tap to check)</h3>
         <p className="pump-plan-hint">
-          Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each · every ~{supplyPlan.intervalHours} h
-          — edit actual oz per session below.
+          Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each · every ~
+          {supplyPlan.intervalHours} h — edit actual oz per session below.
         </p>
         <div className="check-grid">
           {supplyPlan.activePumpIds.map((id) => {
@@ -347,6 +443,17 @@ function DayView({
             );
           })}
         </div>
+
+        {showFormula ? (
+          <FormulaFeeds
+            formulaLogs={log.formulaLogs ?? {}}
+            formulaOz={log.formulaOz ?? 0}
+            onAdd={onAddFormula}
+            onChange={onFormulaChange}
+            onRemove={onRemoveFormula}
+            onToggle={onToggleFormula}
+          />
+        ) : null}
 
         <NutrientBubbles values={log.nutrients ?? {}} onChange={onNutrient} />
 
@@ -423,8 +530,8 @@ function BestDayView({
             ★ Best Day — {monthName} {year}
           </h2>
           <p className="blurb">
-            No logged sets yet. Open a day tab, check off pumps and plates, and your best day will show up here — same
-            energy as a best set on the rack.
+            No logged sets yet. Open a day tab, check off pumps and plates, and your best day will show
+            up here — same energy as a best set on the rack.
           </p>
         </section>
       </main>
@@ -440,7 +547,8 @@ function BestDayView({
         <p className="eyebrow">Personal record · this month</p>
         <h2>★ {best.name} — Best Day</h2>
         <p className="pr-score">
-          Score {best.score} · pumps {best.pumpHit}/{best.pumpMax} · plates {best.mealHit}/{best.mealMax}
+          Score {best.score} · pumps {best.pumpHit}/{best.pumpMax} · plates {best.mealHit}/
+          {best.mealMax}
         </p>
         <p className="blurb">
           {day.theme}. {day.blurb}
@@ -453,10 +561,7 @@ function BestDayView({
         <ul className="best-list">
           {day.meals.map((m) => {
             const food = log.foodLogs?.[m.id];
-            const label =
-              food?.description?.trim() ||
-              log.notes[m.id]?.trim() ||
-              m.food;
+            const label = food?.description?.trim() || log.notes[m.id]?.trim() || m.food;
             return (
               <li key={m.id} className={log.meals[m.id] ? "hit" : "miss"}>
                 <strong>

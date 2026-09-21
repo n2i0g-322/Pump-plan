@@ -1066,3 +1066,169 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   color: #8a5a72;
   line-height: 1.35;
 }
+
+
+/* ===== Overview (dark night-friendly) ===== */
+.overview-main { grid-template-columns: 1fr; }
+.overview-panel {
+  background: #12121a;
+  color: #e8e8ef;
+  border: 1px solid #2a2a38;
+  border-radius: 14px;
+  padding: 1rem 1.1rem 1.25rem;
+}
+.overview-panel h2, .overview-panel h3 { color: #f3f4f8; margin: 0 0 0.4rem; }
+.overview-sub { margin: 0 0 0.85rem; color: #9aa3b5; font-size: 0.85rem; }
+.overview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+.overview-stat {
+  background: #1a1a24;
+  border: 1px solid #2e2e3c;
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.overview-stat strong { font-size: 1.1rem; color: #fff; }
+.overview-stat span { font-size: 0.72rem; color: #9aa3b5; }
+.overview-charts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 900px) {
+  .overview-charts { grid-template-columns: 1fr 1fr; }
+}
+.overview-chart-block h3 { font-size: 0.95rem; margin-bottom: 0.45rem; }
+.overview-chart-wrap { width: 100%; }
+.overview-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
+.overview-legend {
+  list-style: none; margin: 0.45rem 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 0.55rem 0.85rem;
+  font-size: 0.75rem; color: #c5cad6;
+}
+.overview-swatch {
+  display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 999px;
+  margin-right: 0.3rem; vertical-align: -1px;
+}
+.overview-sex-girl { box-shadow: inset 0 0 0 1px #f9a8d4; }
+.overview-sex-boy { box-shadow: inset 0 0 0 1px #7dd3fc; }
+
+/* ===== Baby profile (girl pink / boy blue) ===== */
+.baby-main { grid-template-columns: 1fr; }
+.baby-profile-page {
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem 1.4rem;
+  border: 1.5px solid transparent;
+}
+.baby-theme-girl {
+  background: #fce7f3;
+  border-color: #f9a8d4;
+  color: #4a1942;
+}
+.baby-theme-boy {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0c4a6e;
+}
+.baby-profile-page h2 { margin: 0.15rem 0 0.35rem; }
+.baby-profile-age-line { margin: 0 0 0.9rem; font-size: 0.92rem; }
+.baby-profile-fields {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  max-width: 22rem;
+}
+.baby-profile-fields label {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  font-size: 0.82rem; font-weight: 600;
+}
+.baby-profile-fields input,
+.baby-profile-fields select {
+  border: 1.5px solid #c9c2d8;
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.95rem;
+  background: #fff;
+}
+.baby-theme-boy .baby-profile-fields input,
+.baby-theme-boy .baby-profile-fields select { border-color: #7dd3fc; }
+.baby-theme-girl .baby-profile-fields input,
+.baby-theme-girl .baby-profile-fields select { border-color: #f9a8d4; }
+.baby-sex-fieldset { border: none; padding: 0; margin: 0; }
+.baby-sex-fieldset legend { font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem; }
+.baby-sex-row { display: flex; gap: 0.45rem; }
+.sex-chip {
+  border-radius: 999px; padding: 0.35rem 0.9rem; cursor: pointer;
+  border: 1.5px solid #c9c2d8; background: #fff; font-weight: 600;
+}
+.sex-chip.girl.active { background: #f9a8d4; border-color: #ec4899; color: #831843; }
+.sex-chip.boy.active { background: #7dd3fc; border-color: #0ea5e9; color: #075985; }
+.baby-stage-card {
+  background: rgba(255,255,255,0.72);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.baby-stage-card h3 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.baby-stage-card ul { margin: 0 0 0.5rem; padding-left: 1.1rem; }
+.baby-feed-disclaimer, .baby-profile-page .baby-feed-disclaimer {
+  margin: 0; font-size: 0.72rem; opacity: 0.8; line-height: 1.35;
+}
+
+/* Mode tabs */
+.mode-tabs { align-items: center; }
+.view-row { display: flex; gap: 0.35rem; margin-left: auto; flex-wrap: wrap; }
+.tab.view.active { background: #1a2744; color: #fff; }
+
+/* Formula feeds */
+.formula-section {
+  margin: 1rem 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1.5px solid #fbbf24;
+}
+.formula-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.formula-head h3 { margin: 0; }
+.formula-add {
+  border: none; background: #f59e0b; color: #fff; border-radius: 999px;
+  padding: 0.3rem 0.75rem; font-weight: 600; cursor: pointer;
+}
+.formula-hint { margin: 0.35rem 0 0.55rem; font-size: 0.75rem; color: #92400e; }
+.formula-empty { margin: 0; font-size: 0.85rem; color: #78716c; }
+.formula-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.formula-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  padding: 0.35rem; background: #fff; border-radius: 10px; border: 1px solid #fde68a;
+}
+.formula-time input { border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.2rem; }
+.formula-remove {
+  border: none; background: transparent; color: #b91c1c; cursor: pointer; font-size: 1rem;
+}
+.formula-total {
+  margin-top: 0.55rem; display: flex; flex-direction: column; gap: 0.15rem;
+  font-size: 0.85rem;
+}
+.formula-contrib {
+  margin-top: 0.75rem; padding: 0.65rem 0.8rem; border-radius: 12px;
+  background: #f5f3ff; border: 1.5px solid #c4b5fd;
+}
+.formula-contrib h3 { margin: 0 0 0.25rem; font-size: 0.95rem; }
+.formula-contrib-hint { margin: 0.25rem 0 0; font-size: 0.72rem; color: #6d28d9; }
+
+/* Milk gauge legend swatches */
+.swatch.milk-breast { background: #ffffff; border: 1px solid #333; }
+.swatch.milk-formula { background: #7c3aed; }
+.open-baby-link {
+  margin: 0.4rem 0; border: none; background: transparent;
+  color: #1d4ed8; font-weight: 600; cursor: pointer; padding: 0;
+  text-decoration: underline;
+}
+.app-sex-girl .tab.view.active { background: #be185d; border-color: #be185d; }
+.app-sex-boy .tab.view.active { background: #0284c7; border-color: #0284c7; }

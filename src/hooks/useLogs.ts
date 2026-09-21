@@ -7,7 +7,15 @@ import {
   macrosToNutrientMap,
   type MacroSet,
 } from "../lib/nutrition";
+import { formulaMacrosForOz, sumFormulaOz } from "../lib/formula";
 import { round1 } from "../lib/units";
+
+export type FormulaLogEntry = {
+  oz: number;
+  done?: boolean;
+  label?: string;
+  time?: string;
+};
 
 export type DayLog = {
   pumps: Record<string, boolean>;
@@ -21,11 +29,17 @@ export type DayLog = {
   foodLogs: Record<string, MealFoodEntry>;
   /** Ounces pumped today (supply tracker) — sum of checked pumpOz */
   pumpedOz: number;
-  /** Ounces baby drank today (0 if unknown) */
+  /** Ounces baby drank today (breast milk fed; 0 if unknown) */
   fedOz: number;
   /** Freezer bank stash in oz */
   freezerBankOz: number;
-  /** True once freezer/fed were seeded from previous calendar day */
+  /** Formula feed rows */
+  formulaLogs: Record<string, FormulaLogEntry>;
+  /** Total formula oz (sum of formulaLogs) */
+  formulaOz: number;
+  /** Last formula macros folded into nutrients (for replace-on-update) */
+  formulaMacrosApplied?: MacroSet;
+  /** True once freezer was seeded from previous calendar day */
   seededFromPrev?: boolean;
 };
 
@@ -43,6 +57,8 @@ function emptyLog(): DayLog {
     pumpedOz: 0,
     fedOz: 0,
     freezerBankOz: 0,
+    formulaLogs: {},
+    formulaOz: 0,
     seededFromPrev: false,
   };
 }
@@ -62,14 +78,58 @@ function sumCheckedPumpOz(pumps: Record<string, boolean>, pumpOz: Record<string,
   return round1(total);
 }
 
+function fromMap(n: Record<string, number>): MacroSet {
+  return {
+    calories: n.calories ?? 0,
+    protein: n.protein ?? 0,
+    carbs: n.carbs ?? 0,
+    sugar: n.sugar ?? 0,
+    fat: n.fat ?? 0,
+    calcium: n.calcium ?? 0,
+    fluid: n.fluid ?? 0,
+  };
+}
+
+function subtractMacros(current: MacroSet, prev: MacroSet): MacroSet {
+  return {
+    calories: Math.max(0, current.calories - prev.calories),
+    protein: Math.max(0, Math.round((current.protein - prev.protein) * 10) / 10),
+    carbs: Math.max(0, Math.round((current.carbs - prev.carbs) * 10) / 10),
+    sugar: Math.max(0, Math.round((current.sugar - prev.sugar) * 10) / 10),
+    fat: Math.max(0, Math.round((current.fat - prev.fat) * 10) / 10),
+    calcium: Math.max(0, current.calcium - prev.calcium),
+    fluid: Math.max(0, current.fluid - prev.fluid),
+  };
+}
+
+/** Fold formula macros into day nutrients, replacing any prior formula contribution. */
+function withFormulaNutrients(cur: DayLog, formulaLogs: Record<string, FormulaLogEntry>): DayLog {
+  const formulaOz = sumFormulaOz(formulaLogs);
+  const nextMacros = formulaMacrosForOz(formulaOz);
+  const prevApplied = cur.formulaMacrosApplied ?? EMPTY_MACROS;
+  const withoutPrev = subtractMacros(fromMap(cur.nutrients ?? {}), prevApplied);
+  const merged = addMacros(withoutPrev, nextMacros);
+  return {
+    ...cur,
+    formulaLogs,
+    formulaOz,
+    formulaMacrosApplied: formulaOz > 0 ? nextMacros : undefined,
+    nutrients: macrosToNutrientMap(merged),
+  };
+}
+
 function normalizeLog(v: Partial<DayLog> & { pumpOz?: Record<string, number> }): DayLog {
   const pumps = v.pumps ?? {};
   const pumpOz: Record<string, number> = { ...(v.pumpOz ?? {}) };
-  // Migrate: if older logs have pumps checked but no pumpOz, leave empty (user can edit)
   const pumpedOz =
     typeof v.pumpedOz === "number" && v.pumpedOz >= 0
       ? round1(v.pumpedOz)
       : sumCheckedPumpOz(pumps, pumpOz);
+  const formulaLogs = v.formulaLogs ?? {};
+  const formulaOz =
+    typeof v.formulaOz === "number" && v.formulaOz >= 0
+      ? round1(v.formulaOz)
+      : sumFormulaOz(formulaLogs);
   return {
     pumps,
     pumpOz,
@@ -81,6 +141,9 @@ function normalizeLog(v: Partial<DayLog> & { pumpOz?: Record<string, number> }):
     fedOz: typeof v.fedOz === "number" && v.fedOz >= 0 ? round1(v.fedOz) : 0,
     freezerBankOz:
       typeof v.freezerBankOz === "number" && v.freezerBankOz >= 0 ? round1(v.freezerBankOz) : 0,
+    formulaLogs,
+    formulaOz,
+    formulaMacrosApplied: v.formulaMacrosApplied,
     seededFromPrev: Boolean(v.seededFromPrev),
   };
 }
@@ -100,24 +163,11 @@ function loadAll(): Record<string, DayLog> {
     for (const [k, v] of Object.entries(parsed)) {
       next[k] = normalizeLog(v);
     }
-    // Persist migrated data under v4
     localStorage.setItem(STORAGE, JSON.stringify(next));
     return next;
   } catch {
     return {};
   }
-}
-
-function fromMap(n: Record<string, number>): MacroSet {
-  return {
-    calories: n.calories ?? 0,
-    protein: n.protein ?? 0,
-    carbs: n.carbs ?? 0,
-    sugar: n.sugar ?? 0,
-    fat: n.fat ?? 0,
-    calcium: n.calcium ?? 0,
-    fluid: n.fluid ?? 0,
-  };
 }
 
 /** Previous calendar weekday id + month/year when crossing month boundaries via Date math. */
@@ -128,15 +178,12 @@ function previousDayRef(
 ): { year: number; monthIndex: number; dayId: string } | null {
   const idx = DAYS.findIndex((d) => d.id === dayId);
   if (idx < 0) return null;
-  // Map Mon=0..Sun=6 to a Date: pick a Monday-aligned week in that month
-  // Use mid-month Monday as anchor, then offset by day index.
   const anchor = new Date(year, monthIndex, 15);
-  // Find Monday of that week (or previous)
-  const dow = anchor.getDay(); // 0=Sun
+  const dow = anchor.getDay();
   const mondayOffset = dow === 0 ? -6 : 1 - dow;
   const monday = new Date(year, monthIndex, 15 + mondayOffset);
   const target = new Date(monday);
-  target.setDate(monday.getDate() + idx - 1); // previous calendar day
+  target.setDate(monday.getDate() + idx - 1);
   const prevDow = target.getDay();
   const prevDayId = DAYS[prevDow === 0 ? 6 : prevDow - 1].id;
   return {
@@ -208,7 +255,6 @@ export function useLogs() {
   ) =>
     patch(year, monthIndex, dayId, (cur) => {
       const pumpOz = { ...cur.pumpOz, [pumpId]: sanitizeOz(oz) };
-      // If she edits oz while unchecked, still store it; total only counts checked
       return {
         ...cur,
         pumpOz,
@@ -273,16 +319,7 @@ export function useLogs() {
         prevEntry?.applied && prevEntry.lastApplied
           ? prevEntry.lastApplied
           : EMPTY_MACROS;
-      const current = fromMap(cur.nutrients ?? {});
-      const withoutPrev: MacroSet = {
-        calories: Math.max(0, current.calories - prevApplied.calories),
-        protein: Math.max(0, Math.round((current.protein - prevApplied.protein) * 10) / 10),
-        carbs: Math.max(0, Math.round((current.carbs - prevApplied.carbs) * 10) / 10),
-        sugar: Math.max(0, Math.round((current.sugar - prevApplied.sugar) * 10) / 10),
-        fat: Math.max(0, Math.round((current.fat - prevApplied.fat) * 10) / 10),
-        calcium: Math.max(0, current.calcium - prevApplied.calcium),
-        fluid: Math.max(0, current.fluid - prevApplied.fluid),
-      };
+      const withoutPrev = subtractMacros(fromMap(cur.nutrients ?? {}), prevApplied);
       const nextMacros = addMacros(withoutPrev, macros);
       const nextEntry: MealFoodEntry = {
         ...(prevEntry ?? {
@@ -312,8 +349,60 @@ export function useLogs() {
   const setFreezerBankOz = (year: number, monthIndex: number, dayId: string, value: number) =>
     patch(year, monthIndex, dayId, (cur) => ({ ...cur, freezerBankOz: sanitizeOz(value) }));
 
+  const setFormulaLog = (
+    year: number,
+    monthIndex: number,
+    dayId: string,
+    feedId: string,
+    entry: FormulaLogEntry,
+  ) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const formulaLogs = {
+        ...cur.formulaLogs,
+        [feedId]: {
+          oz: sanitizeOz(entry.oz),
+          done: entry.done,
+          label: entry.label,
+          time: entry.time,
+        },
+      };
+      return withFormulaNutrients(cur, formulaLogs);
+    });
+
+  const addFormulaFeed = (year: number, monthIndex: number, dayId: string, oz = 4) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const id = `f-${Date.now().toString(36)}`;
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mm = String(now.getMinutes()).padStart(2, "0");
+      const formulaLogs = {
+        ...cur.formulaLogs,
+        [id]: { oz: sanitizeOz(oz), done: true, label: `Feed ${Object.keys(cur.formulaLogs).length + 1}`, time: `${hh}:${mm}` },
+      };
+      return withFormulaNutrients(cur, formulaLogs);
+    });
+
+  const removeFormulaFeed = (year: number, monthIndex: number, dayId: string, feedId: string) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const formulaLogs = { ...cur.formulaLogs };
+      delete formulaLogs[feedId];
+      return withFormulaNutrients(cur, formulaLogs);
+    });
+
+  const toggleFormulaFeed = (year: number, monthIndex: number, dayId: string, feedId: string) =>
+    patch(year, monthIndex, dayId, (cur) => {
+      const prev = cur.formulaLogs[feedId];
+      if (!prev) return cur;
+      const formulaLogs = {
+        ...cur.formulaLogs,
+        [feedId]: { ...prev, done: !prev.done },
+      };
+      return withFormulaNutrients(cur, formulaLogs);
+    });
+
   /**
-   * Seed freezer bank + baby drank from previous calendar day once when first opened.
+   * Seed freezer bank from previous calendar day once when first opened.
+   * Do NOT carry fedOz / baby drank — only freezerBankOz.
    */
   const ensureDaySeeded = useCallback(
     (year: number, monthIndex: number, dayId: string) => {
@@ -332,11 +421,9 @@ export function useLogs() {
         const seeded: DayLog = {
           ...cur,
           freezerBankOz: prevLog ? sanitizeOz(prevLog.freezerBankOz) : cur.freezerBankOz,
-          fedOz: prevLog ? sanitizeOz(prevLog.fedOz) : cur.fedOz,
+          // fedOz intentionally NOT carried — reset each day
           seededFromPrev: true,
         };
-        // Only seed if today's values look untouched (both still 0) OR always copy freezer
-        // Spec: carry freezer as-is; carry fedOz as initial default once.
         const next = { ...prev, [key]: seeded };
         localStorage.setItem(STORAGE, JSON.stringify(next));
         return next;
@@ -382,8 +469,8 @@ export function useLogs() {
     [all, scoreDay],
   );
 
-
   return {
+    all,
     getLog,
     togglePump,
     setPumpOz,
@@ -395,6 +482,10 @@ export function useLogs() {
     setPumpedOz,
     setFedOz,
     setFreezerBankOz,
+    setFormulaLog,
+    addFormulaFeed,
+    removeFormulaFeed,
+    toggleFormulaFeed,
     ensureDaySeeded,
     scoreDay,
     bestInMonth,

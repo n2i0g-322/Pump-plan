@@ -47,7 +47,6 @@ function minToDeg(min: number) {
 
 const PUMP_ACTIVE = "#e91e63";
 const PUMP_DONE = "#2e7d32";
-const MILK_GOLD = "#e6b84d";
 
 type Props = {
   nutrients?: Record<string, number>;
@@ -59,8 +58,14 @@ type Props = {
   activePumpIds?: string[];
   /** Completed pump session ids (green markers / wedges). */
   completedPumpIds?: string[];
-  /** Milk progress 0–1 (pumped / demand). */
+  /** @deprecated Prefer breastOz + formulaOz + demandOz */
   milkFill01?: number;
+  /** Breast milk / pumped oz toward daily demand */
+  breastOz?: number;
+  /** Formula oz toward daily demand */
+  formulaOz?: number;
+  /** Daily demand oz = 100% of the milk gauge */
+  demandOz?: number;
 };
 
 /**
@@ -77,6 +82,9 @@ export function Clock24({
   activePumpIds,
   completedPumpIds,
   milkFill01 = 0,
+  breastOz,
+  formulaOz,
+  demandOz,
 }: Props) {
   const size = 380;
   const cx = size / 2;
@@ -112,7 +120,18 @@ export function Clock24({
   const dayNum = String(now.getDate());
   const weekday = now.toLocaleString("en-CA", { weekday: "short" });
 
-  const milkPct = Math.max(0, Math.min(1, milkFill01));
+  const breast = Math.max(0, breastOz ?? 0);
+  const formula = Math.max(0, formulaOz ?? 0);
+  const demand = Math.max(0, demandOz ?? 0);
+  const totalOz = breast + formula;
+  const progress =
+    demand > 0
+      ? Math.min(1, totalOz / demand)
+      : Math.max(0, Math.min(1, milkFill01));
+  const breastShare = totalOz > 0 ? breast / totalOz : 1;
+  const formulaShare = totalOz > 0 ? formula / totalOz : 0;
+  const breastPct = progress * breastShare;
+  const formulaPct = progress * formulaShare;
 
   return (
     <svg
@@ -275,25 +294,36 @@ export function Clock24({
         );
       })}
 
-      {/* Milk progress arc (cream/gold) outside nutrient ring */}
+      {/* Milk progress: matte black track · white breast · purple formula · hard-capped 100% */}
       <circle
         cx={cx}
         cy={cy}
         r={rMilk}
         fill="none"
-        stroke="#e8dfc8"
-        strokeWidth={5}
-        opacity={0.9}
+        stroke="#0a0a0a"
+        strokeWidth={6}
+        opacity={1}
       />
-      {milkPct > 0.002 ? (
+      {breastPct > 0.002 ? (
         <path
-          d={strokeArc(cx, cy, rMilk, 0, 360 * milkPct)}
+          d={strokeArc(cx, cy, rMilk, 0, 360 * breastPct)}
           fill="none"
-          stroke={MILK_GOLD}
-          strokeWidth={5.5}
-          strokeLinecap="round"
+          stroke="#ffffff"
+          strokeWidth={6}
+          strokeLinecap="butt"
         >
-          <title>{`Milk progress: ${Math.round(milkPct * 100)}%`}</title>
+          <title>{`Breast milk: ${Math.round(breastPct * 100)}% of demand`}</title>
+        </path>
+      ) : null}
+      {formulaPct > 0.002 ? (
+        <path
+          d={strokeArc(cx, cy, rMilk, 360 * breastPct, 360 * (breastPct + formulaPct))}
+          fill="none"
+          stroke="#7c3aed"
+          strokeWidth={6}
+          strokeLinecap="butt"
+        >
+          <title>{`Formula: ${Math.round(formulaPct * 100)}% of demand`}</title>
         </path>
       ) : null}
 
