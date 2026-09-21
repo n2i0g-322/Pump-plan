@@ -652,3 +652,178 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   font-size: 0.78rem;
   line-height: 1.35;
 }
+
+
+/* Supply & demand planner */
+.supply-card {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  background: #f3f7ff;
+  border: 1.5px solid #c5d4f0;
+  text-align: left;
+}
+.supply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+.supply-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--navy, #1a2744);
+}
+.supply-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.supply-badge-steady {
+  background: #e8eef8;
+  color: #2a4a7a;
+}
+.supply-badge-surplus {
+  background: #e4f6ea;
+  color: #1b6b3a;
+}
+.supply-badge-deficit {
+  background: #fde8e8;
+  color: #9b2c2c;
+}
+.supply-goal {
+  margin: 0 0 0.55rem;
+  font-size: 0.9rem;
+}
+.supply-goal-sub {
+  color: var(--muted, #5a6478);
+  font-size: 0.8rem;
+}
+.supply-nums {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+}
+.supply-num {
+  background: #fff;
+  border: 1px solid #d5e0f2;
+  border-radius: 12px;
+  padding: 0.45rem 0.35rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.supply-num strong {
+  font-size: 1.05rem;
+  color: var(--navy, #1a2744);
+  line-height: 1.2;
+}
+.supply-num strong em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--muted, #5a6478);
+}
+.supply-num span {
+  font-size: 0.7rem;
+  color: var(--muted, #5a6478);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.supply-break {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #2f3a52;
+}
+.supply-rest {
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: #eef8f1;
+  border: 1px dashed #9cc9a8;
+}
+.supply-rest h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: #1b6b3a;
+}
+.supply-rest ul {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.supply-tips {
+  margin: 0 0 0.55rem;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.supply-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+.supply-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--muted, #5a6478);
+}
+.supply-inputs input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #c5d4f0;
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.9rem;
+  background: #fff;
+  color: var(--navy, #1a2744);
+}
+.supply-inputs input:focus {
+  outline: 2px solid #6d5efc;
+  outline-offset: 1px;
+}
+.supply-disclaimer {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #5a6a85;
+  line-height: 1.35;
+}
+.pump-plan-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  color: var(--muted, #5a6478);
+}
+.check-grid .check {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  line-height: 1.2;
+}
+.check-main {
+  font-weight: 600;
+}
+.check-sub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  opacity: 0.75;
+}
+@media (max-width: 520px) {
+  .supply-nums,
+  .supply-inputs {
+    grid-template-columns: 1fr;
+  }
+}

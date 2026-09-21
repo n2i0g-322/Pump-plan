@@ -16,12 +16,27 @@ export type DayLog = {
   nutrients: Record<string, number>;
   /** Per-meal food + nutrition + photos */
   foodLogs: Record<string, MealFoodEntry>;
+  /** Ounces pumped today (supply tracker) */
+  pumpedOz: number;
+  /** Ounces baby drank today (0 if unknown) */
+  fedOz: number;
+  /** Freezer bank stash in oz */
+  freezerBankOz: number;
 };
 
 const STORAGE = "pump-week-logs-v3";
 
 function emptyLog(): DayLog {
-  return { pumps: {}, meals: {}, notes: {}, nutrients: {}, foodLogs: {} };
+  return {
+    pumps: {},
+    meals: {},
+    notes: {},
+    nutrients: {},
+    foodLogs: {},
+    pumpedOz: 0,
+    fedOz: 0,
+    freezerBankOz: 0,
+  };
 }
 
 function loadAll(): Record<string, DayLog> {
@@ -40,6 +55,10 @@ function loadAll(): Record<string, DayLog> {
         notes: v.notes ?? {},
         nutrients: v.nutrients ?? {},
         foodLogs: v.foodLogs ?? {},
+        pumpedOz: typeof v.pumpedOz === "number" && v.pumpedOz >= 0 ? v.pumpedOz : 0,
+        fedOz: typeof v.fedOz === "number" && v.fedOz >= 0 ? v.fedOz : 0,
+        freezerBankOz:
+          typeof v.freezerBankOz === "number" && v.freezerBankOz >= 0 ? v.freezerBankOz : 0,
       };
     }
     return next;
@@ -58,6 +77,10 @@ function fromMap(n: Record<string, number>): MacroSet {
     calcium: n.calcium ?? 0,
     fluid: n.fluid ?? 0,
   };
+}
+
+function sanitizeOz(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 export function useLogs() {
@@ -177,13 +200,24 @@ export function useLogs() {
       };
     });
 
-  const scoreDay = useCallback((log: DayLog) => {
-    const pumpHit = PUMP_IDS.filter((id) => log.pumps[id]).length;
+  const setPumpedOz = (year: number, monthIndex: number, dayId: string, value: number) =>
+    patch(year, monthIndex, dayId, (cur) => ({ ...cur, pumpedOz: sanitizeOz(value) }));
+
+  const setFedOz = (year: number, monthIndex: number, dayId: string, value: number) =>
+    patch(year, monthIndex, dayId, (cur) => ({ ...cur, fedOz: sanitizeOz(value) }));
+
+  const setFreezerBankOz = (year: number, monthIndex: number, dayId: string, value: number) =>
+    patch(year, monthIndex, dayId, (cur) => ({ ...cur, freezerBankOz: sanitizeOz(value) }));
+
+  /** Score pumps against an optional active session list (defaults to full PUMP_IDS). */
+  const scoreDay = useCallback((log: DayLog, pumpIds?: string[]) => {
+    const ids = pumpIds ?? PUMP_IDS;
+    const pumpHit = ids.filter((id) => log.pumps[id]).length;
     const mealHit = EAT_IDS.filter((id) => log.meals[id]).length;
     return {
       pumpHit,
       mealHit,
-      pumpMax: PUMP_IDS.length,
+      pumpMax: ids.length,
       mealMax: EAT_IDS.length,
       score: pumpHit * 2 + mealHit * 3,
     };
@@ -220,6 +254,9 @@ export function useLogs() {
     setNutrient,
     setFoodLog,
     applyFoodMacros,
+    setPumpedOz,
+    setFedOz,
+    setFreezerBankOz,
     scoreDay,
     bestInMonth,
   };

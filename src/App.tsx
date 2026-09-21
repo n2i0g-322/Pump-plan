@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { Clock24 } from "./components/Clock24";
 import { MilkBottleBuddy } from "./components/MilkBottleBuddy";
+import { SupplyDemandCard } from "./components/SupplyDemandCard";
 import {
   DAYS,
+  DAILY_CLOCK,
   MONTHS,
   NON_NEGOTIABLES,
   PUMP_IDS,
@@ -14,6 +16,7 @@ import {
 import { MealFoodLog } from "./components/MealFoodLog";
 import { NutrientBubbles } from "./components/NutrientBubbles";
 import { useLogs, type DayLog } from "./hooks/useLogs";
+import { planSupplyDemand } from "./lib/supplyDemand";
 import type { MacroSet } from "./lib/nutrition";
 import "./App.css";
 
@@ -37,12 +40,28 @@ export default function App() {
     setNutrient,
     setFoodLog,
     applyFoodMacros,
+    setPumpedOz,
+    setFedOz,
+    setFreezerBankOz,
     scoreDay,
     bestInMonth,
   } = useLogs();
   const day = useMemo(() => DAYS.find((d) => d.id === dayId) ?? DAYS[0], [dayId]);
   const log = getLog(year, monthIndex, day.id);
-  const score = scoreDay(log);
+  const babyDays = babyAgeDays();
+  const babyStage = babyFeedStageForAge(babyDays);
+  const supplyPlan = useMemo(
+    () =>
+      planSupplyDemand({
+        stage: babyStage,
+        pumpedOzToday: log.pumpedOz ?? 0,
+        fedOzToday: log.fedOz ?? 0,
+        freezerBankOz: log.freezerBankOz ?? 0,
+        pumpIds: PUMP_IDS,
+      }),
+    [babyStage, log.pumpedOz, log.fedOz, log.freezerBankOz],
+  );
+  const score = scoreDay(log, supplyPlan.activePumpIds);
   const best = bestInMonth(year, monthIndex);
 
   return (
@@ -102,12 +121,18 @@ export default function App() {
           day={day}
           log={log}
           score={score}
+          supplyPlan={supplyPlan}
+          babyDays={babyDays}
+          babyStage={babyStage}
           onTogglePump={(id) => togglePump(year, monthIndex, day.id, id)}
           onToggleMeal={(id) => toggleMeal(year, monthIndex, day.id, id)}
           onNote={(id, note) => setNote(year, monthIndex, day.id, id, note)}
           onNutrient={(id, value) => setNutrient(year, monthIndex, day.id, id, value)}
           onFoodLog={(id, entry) => setFoodLog(year, monthIndex, day.id, id, entry)}
           onApplyFood={(id, macros) => applyFoodMacros(year, monthIndex, day.id, id, macros)}
+          onPumpedOz={(v) => setPumpedOz(year, monthIndex, day.id, v)}
+          onFedOz={(v) => setFedOz(year, monthIndex, day.id, v)}
+          onFreezerBankOz={(v) => setFreezerBankOz(year, monthIndex, day.id, v)}
         />
       ) : (
         <BestDayView
@@ -135,25 +160,45 @@ function DayView({
   day,
   log,
   score,
+  supplyPlan,
+  babyDays,
+  babyStage,
   onTogglePump,
   onToggleMeal,
   onNote,
   onNutrient,
   onFoodLog,
   onApplyFood,
+  onPumpedOz,
+  onFedOz,
+  onFreezerBankOz,
 }: {
   day: DayPlan;
   log: DayLog;
   score: ReturnType<ReturnType<typeof useLogs>["scoreDay"]>;
+  supplyPlan: ReturnType<typeof planSupplyDemand>;
+  babyDays: number;
+  babyStage: ReturnType<typeof babyFeedStageForAge>;
   onTogglePump: (id: string) => void;
   onToggleMeal: (id: string) => void;
   onNote: (id: string, note: string) => void;
   onNutrient: (id: string, value: number) => void;
   onFoodLog: (id: string, entry: NonNullable<DayLog["foodLogs"][string]>) => void;
   onApplyFood: (id: string, macros: MacroSet) => void;
+  onPumpedOz: (v: number) => void;
+  onFedOz: (v: number) => void;
+  onFreezerBankOz: (v: number) => void;
 }) {
-  const babyDays = babyAgeDays();
-  const babyStage = babyFeedStageForAge(babyDays);
+  const bottleFill =
+    log.pumpedOz > 0 && supplyPlan.demandOz > 0
+      ? Math.min(1, log.pumpedOz / supplyPlan.demandOz)
+      : score.pumpMax
+        ? score.pumpHit / score.pumpMax
+        : 0;
+  const bottleLabel =
+    log.pumpedOz > 0
+      ? `${log.pumpedOz} / ${supplyPlan.demandOz} oz pumped`
+      : `${score.pumpHit} / ${score.pumpMax} pumps today`;
 
   return (
     <main className="main">
@@ -180,9 +225,9 @@ function DayView({
           Today&apos;s set: {score.pumpHit}/{score.pumpMax} pumps · {score.mealHit}/{score.mealMax} plates
         </div>
         <MilkBottleBuddy
-          fill={score.pumpMax ? score.pumpHit / score.pumpMax : 0}
-          label={`${score.pumpHit} / ${score.pumpMax} pumps today`}
-          ozHint={`${babyStage.ozPerFeed} per feed · ${babyStage.feedsPerDay}× / day · ${babyStage.interval}`}
+          fill={bottleFill}
+          label={bottleLabel}
+          ozHint={`${supplyPlan.ozPerSession} oz × ${supplyPlan.sessions} · ${babyStage.interval}`}
         />
         <aside className="baby-feed-card">
           <h3>Baby milk guide</h3>
@@ -198,6 +243,15 @@ function DayView({
             General chart from Parents.com age guide — not medical advice. Premature / NICU plans from the hospital come first.
           </p>
         </aside>
+        <SupplyDemandCard
+          plan={supplyPlan}
+          pumpedOz={log.pumpedOz ?? 0}
+          fedOz={log.fedOz ?? 0}
+          freezerBankOz={log.freezerBankOz ?? 0}
+          onPumpedOz={onPumpedOz}
+          onFedOz={onFedOz}
+          onFreezerBankOz={onFreezerBankOz}
+        />
       </section>
 
       <section className="detail-panel">
@@ -214,13 +268,29 @@ function DayView({
         </ul>
 
         <h3>Log pumps (tap to check)</h3>
+        <p className="pump-plan-hint">
+          Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each
+        </p>
         <div className="check-grid">
-          {PUMP_IDS.map((id) => (
-            <button key={id} type="button" className={log.pumps[id] ? "check on" : "check"} onClick={() => onTogglePump(id)}>
-              {id.replace("pump-", "")}
-              {log.pumps[id] ? " ✓" : ""}
-            </button>
-          ))}
+          {supplyPlan.activePumpIds.map((id) => {
+            const label =
+              DAILY_CLOCK.find((s) => s.id === id)?.label.replace(/^Pump\s+/i, "") ??
+              id.replace("pump-", "");
+            return (
+              <button
+                key={id}
+                type="button"
+                className={log.pumps[id] ? "check on" : "check"}
+                onClick={() => onTogglePump(id)}
+              >
+                <span className="check-main">
+                  {label}
+                  {log.pumps[id] ? " ✓" : ""}
+                </span>
+                <span className="check-sub">~{supplyPlan.ozPerSession} oz</span>
+              </button>
+            );
+          })}
         </div>
 
         <NutrientBubbles values={log.nutrients ?? {}} onChange={onNutrient} />
