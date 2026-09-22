@@ -1,6 +1,7 @@
 import { DAILY_CLOCK } from "../data/plan";
 import type { SupplyPlan } from "../lib/supplyDemand";
-import { ozToMl, round1 } from "../lib/units";
+import { formatOzTotal, ozToMl, round1 } from "../lib/units";
+import { VolumeFields } from "./VolumeFields";
 
 type Props = {
   plan: SupplyPlan;
@@ -105,7 +106,7 @@ export function SupplyDemandCard({
                 {slot.oz != null && slot.oz > 0 ? (
                   <span className="pump-time-oz">
                     {" "}
-                    · {slot.oz} oz ({ozToMl(slot.oz)} ml)
+                    · {formatOzTotal(slot.oz)}
                   </span>
                 ) : null}
               </li>
@@ -136,9 +137,7 @@ export function SupplyDemandCard({
       <div className="supply-totals" role="group" aria-label="Milk totals">
         <div className="supply-total">
           <span className="supply-total-label">Pumped</span>
-          <strong>
-            {round1(pumpedOz)} oz · {ozToMl(pumpedOz)} ml
-          </strong>
+          <strong>{formatOzTotal(pumpedOz)}</strong>
         </div>
         <div className="supply-total">
           <span className="supply-total-label">Goal</span>
@@ -148,54 +147,34 @@ export function SupplyDemandCard({
         </div>
         <div className="supply-total">
           <span className="supply-total-label">Remaining</span>
-          <strong>
-            {remaining} oz · {ozToMl(remaining)} ml
-          </strong>
+          <strong>{formatOzTotal(remaining)}</strong>
         </div>
       </div>
 
-      <div className="supply-inputs">
-        <label>
-          Pumped today (oz)
-          <span className="input-ml-hint">{ozToMl(pumpedOz)} ml</span>
-          <input
-            type="number"
-            min={0}
-            step={0.5}
-            inputMode="decimal"
-            value={pumpedOz || ""}
-            placeholder="0"
-            onChange={(e) => onPumpedOz(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          Baby drank today (oz)
-          <span className="input-ml-hint">{ozToMl(fedOz)} ml</span>
-          <input
-            type="number"
-            min={0}
-            step={0.5}
-            inputMode="decimal"
-            value={fedOz || ""}
-            placeholder="0"
-            onChange={(e) => onFedOz(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          Freezer bank (oz)
-          <span className="input-ml-hint">{ozToMl(freezerBankOz)} ml</span>
-          <input
-            type="number"
-            min={0}
-            step={0.5}
-            inputMode="decimal"
-            value={freezerBankOz || ""}
-            placeholder="0"
-            onChange={(e) => onFreezerBankOz(Number(e.target.value))}
-          />
-        </label>
+      <div className="supply-inputs supply-inputs-volume" role="group" aria-label="Milk volume inputs">
+        <VolumeFields
+          mode="oz"
+          label="Pumped today"
+          valueOz={pumpedOz}
+          onChangeOz={onPumpedOz}
+        />
+        <VolumeFields
+          mode="oz"
+          label="Baby drank today"
+          valueOz={fedOz}
+          onChangeOz={onFedOz}
+        />
+        <VolumeFields
+          mode="oz"
+          label="Freezer bank"
+          valueOz={freezerBankOz}
+          onChangeOz={onFreezerBankOz}
+        />
       </div>
-      <p className="supply-carry-note">Only the freezer bank carries to tomorrow — baby drank resets each day.</p>
+      <p className="supply-carry-note">
+        Only the freezer bank carries to tomorrow — baby drank resets each day. Edit oz or ml —
+        both update the shared total live.
+      </p>
 
       <p className="supply-disclaimer">
         Not medical advice. Hospital / NICU feeding plans win over this chart.

@@ -411,13 +411,14 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--navy);
-  cursor: pointer;
 }
-.photo-slot input[type="file"] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
+.photo-slot-title { font-weight: 700; }
+.photo-slot-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted, #5a6478);
+  line-height: 1.3;
 }
 .photo-slot img,
 .photo-placeholder {
@@ -436,6 +437,45 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   font-size: 0.78rem;
   padding: 0.5rem;
   text-align: center;
+}
+.photo-ctrl-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+.photo-ctrl {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0.4rem 0.35rem;
+  border-radius: 10px;
+  border: 1.5px solid #c5d4f0;
+  background: #eef3ff;
+  color: var(--navy, #1a2744);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  overflow: hidden;
+}
+.photo-ctrl.gallery {
+  background: #f3f7f0;
+  border-color: #b7d0b0;
+}
+.photo-ctrl.camera-only {
+  margin-top: 0.15rem;
+}
+.photo-ctrl input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+.photo-prompt-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 .meal-food-footer {
   display: grid;
@@ -825,6 +865,9 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   grid-template-columns: repeat(3, 1fr);
   gap: 0.4rem;
   margin-bottom: 0.45rem;
+}
+.supply-inputs-volume {
+  align-items: start;
 }
 .supply-inputs label {
   display: flex;
@@ -1232,3 +1275,125 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
 }
 .app-sex-girl .tab.view.active { background: #be185d; border-color: #be185d; }
 .app-sex-boy .tab.view.active { background: #0284c7; border-color: #0284c7; }
+
+
+/* —— Dual / triple volume entry (oz · ml · L) —— */
+.volume-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.volume-fields-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted, #5a6478);
+}
+.volume-fields-boxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.volume-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  flex: 1 1 3.4rem;
+  min-width: 3.2rem;
+  font-size: 0.65rem;
+  color: #6d7a92;
+  font-weight: 600;
+}
+.volume-unit {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.volume-box input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #c5d4f0;
+  border-radius: 8px;
+  padding: 0.3rem 0.35rem;
+  font-size: 0.88rem;
+  text-align: center;
+  background: #fff;
+  color: var(--navy, #1a2744);
+  -moz-appearance: textfield;
+}
+.volume-box input::-webkit-outer-spin-button,
+.volume-box input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.volume-box input:focus {
+  outline: 2px solid #6d5efc;
+  outline-offset: 1px;
+}
+.volume-fields-total {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--navy, #1a2744);
+  line-height: 1.3;
+}
+.volume-fields-compact .volume-fields-boxes {
+  gap: 0.2rem;
+}
+.volume-fields-compact .volume-box {
+  flex: 1 1 2.6rem;
+  min-width: 2.5rem;
+}
+.volume-fields-compact .volume-box input {
+  padding: 0.2rem 0.25rem;
+  font-size: 0.78rem;
+  border-radius: 6px;
+}
+.volume-fields-compact .volume-fields-total {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #6d7a92;
+}
+.check-wrap.on .volume-box input {
+  border-color: #2e7d32;
+}
+.pump-day-total {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.88rem;
+  color: var(--navy, #1a2744);
+}
+.nb-fluid-total {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy, #1a2744);
+}
+.nb-volume {
+  margin-top: 0.15rem;
+}
+.meal-fluid-block {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.55rem 0.6rem;
+  border: 1.5px solid #b6e4f0;
+  border-radius: 12px;
+  background: #f2fbfe;
+}
+.meal-fluid-heading {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy, #1a2744);
+}
+.meal-fluid-total {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #067a96;
+}
+.formula-volume {
+  flex: 1 1 auto;
+  min-width: 7rem;
+}
+.add-more-photos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}

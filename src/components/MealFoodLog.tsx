@@ -7,6 +7,8 @@ import {
   type MacroSet,
   type NutritionHit,
 } from "../lib/nutrition";
+import { formatMlTotal } from "../lib/units";
+import { VolumeFields } from "./VolumeFields";
 
 export type MealFoodEntry = {
   description: string;
@@ -256,7 +258,6 @@ export function MealFoodLog({
                 ["sugar", "g"],
                 ["fat", "g"],
                 ["calcium", "mg"],
-                ["fluid", "ml"],
               ] as const
             ).map(([key, unit]) => (
               <label key={key} className="macro-cell">
@@ -266,11 +267,7 @@ export function MealFoodLog({
                 <input
                   type="number"
                   min={0}
-                  step={
-                    key === "calories" || key === "calcium" || key === "fluid"
-                      ? 1
-                      : 0.1
-                  }
+                  step={key === "calories" || key === "calcium" ? 1 : 0.1}
                   value={e.macros[key]}
                   onChange={(ev) =>
                     patch({
@@ -290,39 +287,87 @@ export function MealFoodLog({
             ))}
           </div>
 
+          <div className="meal-fluid-block">
+            <span className="meal-fluid-heading">Fluid / liquid (oz · ml · L)</span>
+            <VolumeFields
+              mode="ml"
+              showLiters
+              hideTotal
+              label="Entry fluid"
+              valueMl={e.macros.fluid || 0}
+              onChangeMl={(ml) =>
+                patch({
+                  macros: { ...e.macros, fluid: ml },
+                  source: e.source?.includes("manual")
+                    ? e.source
+                    : e.source
+                      ? `${e.source} · edited`
+                      : "manual / label",
+                })
+              }
+              className="meal-fluid-volume"
+            />
+            <p className="meal-fluid-total" aria-live="polite">
+              {formatMlTotal(e.macros.fluid || 0)}
+            </p>
+          </div>
+
           <div className="photo-row">
-            <label className="photo-slot">
-              <span>Serving portion photo</span>
+            <div className="photo-slot photo-slot-serving">
+              <span className="photo-slot-title">Serving portion photo</span>
+              <p className="photo-slot-hint">Camera — what&apos;s actually on the plate</p>
               {e.servingPhoto ? (
                 <img src={e.servingPhoto} alt="Serving portion" />
               ) : (
-                <span className="photo-placeholder">Tap to add</span>
+                <span className="photo-placeholder">Take a photo</span>
               )}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(ev) =>
-                  void onPhoto("servingPhoto", ev.target.files?.[0] ?? null)
-                }
-              />
-            </label>
-            <label className="photo-slot">
-              <span>Box / label nutrition facts</span>
+              <label className="photo-ctrl camera-only">
+                <span>Camera</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(ev) => {
+                    void onPhoto("servingPhoto", ev.target.files?.[0] ?? null);
+                    ev.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            <div className="photo-slot photo-slot-label">
+              <span className="photo-slot-title">Box / label nutrition facts</span>
+              <p className="photo-slot-hint">Camera or gallery — label reference</p>
               {e.labelPhoto ? (
                 <img src={e.labelPhoto} alt="Nutrition label" />
               ) : (
-                <span className="photo-placeholder">Tap to add</span>
+                <span className="photo-placeholder">Camera or upload</span>
               )}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(ev) =>
-                  void onPhoto("labelPhoto", ev.target.files?.[0] ?? null)
-                }
-              />
-            </label>
+              <div className="photo-ctrl-row">
+                <label className="photo-ctrl">
+                  <span>Camera</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(ev) => {
+                      void onPhoto("labelPhoto", ev.target.files?.[0] ?? null);
+                      ev.target.value = "";
+                    }}
+                  />
+                </label>
+                <label className="photo-ctrl gallery">
+                  <span>Gallery</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(ev) => {
+                      void onPhoto("labelPhoto", ev.target.files?.[0] ?? null);
+                      ev.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
           </div>
 
           {extras.length > 0 && (
@@ -354,19 +399,33 @@ export function MealFoodLog({
               </p>
               <div className="photo-prompt-actions">
                 {!e.labelPhoto && e.servingPhoto ? (
-                  <label className="btn-primary as-file-btn">
-                    Yes, add label photo
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(ev) => {
-                        setMorePhotoPrompt(false);
-                        void onPhoto("labelPhoto", ev.target.files?.[0] ?? null);
-                        ev.target.value = "";
-                      }}
-                    />
-                  </label>
+                  <div className="photo-prompt-split">
+                    <label className="btn-primary as-file-btn">
+                      Label camera
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(ev) => {
+                          setMorePhotoPrompt(false);
+                          void onPhoto("labelPhoto", ev.target.files?.[0] ?? null);
+                          ev.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className="btn-primary as-file-btn">
+                      Label gallery
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(ev) => {
+                          setMorePhotoPrompt(false);
+                          void onPhoto("labelPhoto", ev.target.files?.[0] ?? null);
+                          ev.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
                 ) : !e.servingPhoto && e.labelPhoto ? (
                   <label className="btn-primary as-file-btn">
                     Yes, add portion photo
@@ -409,7 +468,6 @@ export function MealFoodLog({
             className="extra-file-input"
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={(ev) => {
               void onExtraPhoto(ev.target.files?.[0] ?? null);
               ev.target.value = "";
@@ -417,13 +475,15 @@ export function MealFoodLog({
           />
 
           {!morePhotoPrompt && (e.servingPhoto || e.labelPhoto || extras.length > 0) && (
-            <button
-              type="button"
-              className="btn-ghost add-more-photos"
-              onClick={() => extraInputRef.current?.click()}
-            >
-              + Add another photo
-            </button>
+            <div className="add-more-photos-row">
+              <button
+                type="button"
+                className="btn-ghost add-more-photos"
+                onClick={() => extraInputRef.current?.click()}
+              >
+                + Add another (gallery)
+              </button>
+            </div>
           )}
 
           {photoGate && (
@@ -465,7 +525,7 @@ export function MealFoodLog({
               {scaled.protein}g · C {scaled.carbs}g (sugar {scaled.sugar}g) · F{" "}
               {scaled.fat}g
               {scaled.calcium ? ` · Ca ${scaled.calcium}mg` : ""}
-              {scaled.fluid ? ` · fluid ${scaled.fluid}ml` : ""}
+              {scaled.fluid ? ` · fluid ${formatMlTotal(scaled.fluid)}` : ""}
             </p>
             <button
               type="button"

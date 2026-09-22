@@ -1,6 +1,7 @@
 import type { FormulaLogEntry } from "../hooks/useLogs";
 import { FORMULA_PER_OZ, formulaMacrosForOz } from "../lib/formula";
-import { ozToMl, round1 } from "../lib/units";
+import { formatOzTotal, round1 } from "../lib/units";
+import { VolumeFields } from "./VolumeFields";
 
 type Props = {
   formulaLogs: Record<string, FormulaLogEntry>;
@@ -32,7 +33,8 @@ export function FormulaFeeds({
       </div>
       <p className="formula-hint">
         Approx {FORMULA_PER_OZ.calories} kcal / oz prepared formula (typical averages — not
-        brand-specific). Macros fold into today&apos;s nutrient scoreboard.
+        brand-specific). Macros fold into today&apos;s nutrient scoreboard. Enter oz or ml per
+        feed.
       </p>
       {entries.length === 0 ? (
         <p className="formula-empty">No formula logged yet. Tap Add feed.</p>
@@ -57,19 +59,15 @@ export function FormulaFeeds({
                     onChange={(e) => onChange(id, { ...entry, time: e.target.value })}
                   />
                 </label>
-                <label className="pump-oz-field">
-                  <span className="sr-only">Ounces</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    inputMode="decimal"
-                    value={entry.oz || ""}
-                    placeholder="4"
-                    onChange={(e) => onChange(id, { ...entry, oz: Number(e.target.value) })}
-                  />
-                  <span className="pump-oz-ml">{ozToMl(entry.oz || 0)} ml</span>
-                </label>
+                <VolumeFields
+                  mode="oz"
+                  compact
+                  hideTotal
+                  label={`Formula ${entry.label || "feed"}`}
+                  valueOz={entry.oz || 0}
+                  onChangeOz={(oz) => onChange(id, { ...entry, oz })}
+                  className="formula-volume"
+                />
                 <button
                   type="button"
                   className="formula-remove"
@@ -84,9 +82,7 @@ export function FormulaFeeds({
         </ul>
       )}
       <div className="formula-total">
-        <strong>
-          {round1(formulaOz)} oz · {ozToMl(formulaOz)} ml
-        </strong>
+        <strong>{formatOzTotal(round1(formulaOz))}</strong>
         <span>
           ≈ {macros.calories} kcal · P {macros.protein}g · C {macros.carbs}g · F {macros.fat}g
         </span>

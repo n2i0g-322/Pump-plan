@@ -4,6 +4,8 @@ import {
   nutrientColor,
   type NutrientGroup,
 } from "../data/plan";
+import { formatMlTotal } from "../lib/units";
+import { VolumeFields } from "./VolumeFields";
 
 type Props = {
   values: Record<string, number>;
@@ -33,6 +35,7 @@ export function NutrientBubbles({ values, onChange }: Props) {
       <h3>Daily nutrition targets</h3>
       <p className="nutrient-hint">
         Required targets for the day. Tap a number to log what you ate — progress updates against the goal.
+        Fluid accepts oz, ml, or liters (stored as ml).
       </p>
       <div className="nutrient-grid">
         {NUTRIENT_GROUPS.map((g) => {
@@ -40,22 +43,49 @@ export function NutrientBubbles({ values, onChange }: Props) {
           const have = groupLogged(g, values);
           const p = pct(have, need);
           const done = have >= need && need > 0;
+          const isFluid = g.id === "fluid";
 
           return (
-            <article key={g.id} className={done ? "nutrient-bubble done" : "nutrient-bubble"} style={{ borderColor: nutrientColor(g.children?.[0]?.id ?? g.id) }}>
+            <article
+              key={g.id}
+              className={done ? "nutrient-bubble done" : "nutrient-bubble"}
+              style={{ borderColor: nutrientColor(g.children?.[0]?.id ?? g.id) }}
+            >
               <header className="nb-head">
                 <h4>{g.label}</h4>
                 <span className="nb-total">
-                  {have}
-                  <small>
-                    / {need} {g.unit}
-                  </small>
+                  {isFluid ? (
+                    <>
+                      {Math.round(have)}
+                      <small>
+                        / {need} ml
+                      </small>
+                    </>
+                  ) : (
+                    <>
+                      {have}
+                      <small>
+                        / {need} {g.unit}
+                      </small>
+                    </>
+                  )}
                 </span>
               </header>
               <div className="nb-bar" aria-hidden>
-                <div className="nb-fill" style={{ width: `${p}%`, background: nutrientColor(g.children?.[0]?.id ?? g.id) }} />
+                <div
+                  className="nb-fill"
+                  style={{
+                    width: `${p}%`,
+                    background: nutrientColor(g.children?.[0]?.id ?? g.id),
+                  }}
+                />
               </div>
               <p className="nb-pct">{p}% of target</p>
+              {isFluid ? (
+                <p className="nb-fluid-total" aria-live="polite">
+                  {formatMlTotal(have)}
+                </p>
+              ) : null}
 
               {g.children?.length ? (
                 <div className="nb-children">
@@ -91,6 +121,16 @@ export function NutrientBubbles({ values, onChange }: Props) {
                     Box total = carbs + sugar → <strong>{have}</strong> / {need} {g.unit}
                   </p>
                 </div>
+              ) : isFluid ? (
+                <VolumeFields
+                  mode="ml"
+                  showLiters
+                  hideTotal
+                  label="Fluid logged"
+                  valueMl={leafValue(values, g.id)}
+                  onChangeMl={(ml) => onChange(g.id, ml)}
+                  className="nb-volume"
+                />
               ) : (
                 <label className="nb-row solo">
                   <span className="nb-label">Logged today</span>

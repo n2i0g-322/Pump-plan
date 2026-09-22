@@ -245,7 +245,7 @@ export function useLogs() {
       };
     });
 
-  /** Set ounces for one pump session; refreshes pumpedOz from checked sum. */
+  /** Set ounces for one pump session; auto-checks when oz > 0; refreshes pumpedOz. */
   const setPumpOz = (
     year: number,
     monthIndex: number,
@@ -254,11 +254,15 @@ export function useLogs() {
     oz: number,
   ) =>
     patch(year, monthIndex, dayId, (cur) => {
-      const pumpOz = { ...cur.pumpOz, [pumpId]: sanitizeOz(oz) };
+      const safe = sanitizeOz(oz);
+      const pumpOz = { ...cur.pumpOz, [pumpId]: safe };
+      const pumps = { ...cur.pumps };
+      if (safe > 0) pumps[pumpId] = true;
       return {
         ...cur,
+        pumps,
         pumpOz,
-        pumpedOz: sumCheckedPumpOz(cur.pumps, pumpOz),
+        pumpedOz: sumCheckedPumpOz(pumps, pumpOz),
       };
     });
 

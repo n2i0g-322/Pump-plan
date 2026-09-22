@@ -23,7 +23,8 @@ import { useLogs, type DayLog, type FormulaLogEntry } from "./hooks/useLogs";
 import { useSettings } from "./hooks/useSettings";
 import { planSupplyDemand } from "./lib/supplyDemand";
 import { formulaMacrosForOz } from "./lib/formula";
-import { ozToMl } from "./lib/units";
+import { formatOzTotal } from "./lib/units";
+import { VolumeFields } from "./components/VolumeFields";
 import type { MacroSet } from "./lib/nutrition";
 import type { MealFoodEntry } from "./components/MealFoodLog";
 import "./App.css";
@@ -283,7 +284,7 @@ function DayView({
         : 0;
   const bottleLabel =
     log.pumpedOz > 0
-      ? `${log.pumpedOz} / ${supplyPlan.demandOz} oz pumped`
+      ? `${formatOzTotal(log.pumpedOz)} / ${supplyPlan.demandOz} oz goal`
       : `${score.pumpHit} / ${score.pumpMax} pumps today`;
 
   const completedPumpIds = supplyPlan.activePumpIds.filter((id) => log.pumps[id]);
@@ -397,7 +398,7 @@ function DayView({
         <h3>Log pumps (tap to check)</h3>
         <p className="pump-plan-hint">
           Planned today: {supplyPlan.sessions} sessions · ~{supplyPlan.ozPerSession} oz each · every ~
-          {supplyPlan.intervalHours} h — edit actual oz per session below.
+          {supplyPlan.intervalHours} h — edit actual oz or ml per session below (either updates the day pumped total live).
         </p>
         <div className="check-grid">
           {supplyPlan.activePumpIds.map((id) => {
@@ -424,25 +425,25 @@ function DayView({
                   </span>
                   <span className="check-sub">plan ~{supplyPlan.ozPerSession} oz</span>
                 </button>
-                <label className="pump-oz-field">
-                  <span className="sr-only">Ounces for {label}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    inputMode="decimal"
-                    value={ozVal || ""}
-                    placeholder={String(supplyPlan.ozPerSession)}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => onPumpOz(id, Number(e.target.value))}
-                    aria-label={`Actual ounces for ${label}`}
-                  />
-                  <span className="pump-oz-ml">{ozToMl(ozVal || 0)} ml</span>
-                </label>
+                <VolumeFields
+                  mode="oz"
+                  compact
+                  label={`Pump ${label}`}
+                  valueOz={ozVal || 0}
+                  onChangeOz={(oz) => onPumpOz(id, oz)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="pump-volume"
+                />
               </div>
             );
           })}
         </div>
+        <p className="pump-day-total" aria-live="polite">
+          Day pumped total: <strong>{formatOzTotal(log.pumpedOz ?? 0)}</strong>
+          {supplyPlan.demandOz > 0 ? (
+            <span> · goal {supplyPlan.demandOz} oz</span>
+          ) : null}
+        </p>
 
         {showFormula ? (
           <FormulaFeeds
