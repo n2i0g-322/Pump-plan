@@ -42,6 +42,10 @@ const emptyEntry = (): MealFoodEntry => ({
   applied: false,
 });
 
+function macrosAreEmpty(m: MacroSet): boolean {
+  return m.calories <= 0 && m.protein <= 0 && m.carbs <= 0 && m.fat <= 0;
+}
+
 export function MealFoodLog({
   mealId,
   mealTitle,
@@ -54,6 +58,9 @@ export function MealFoodLog({
   const [looking, setLooking] = useState(false);
   const [hits, setHits] = useState<NutritionHit[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
+  const [ocrOk, setOcrOk] = useState(false);
+  const [plateHint, setPlateHint] = useState(false);
   const [open, setOpen] = useState(Boolean(e.description || e.applied));
   /** After a photo lands: ask if another is needed */
   const [morePhotoPrompt, setMorePhotoPrompt] = useState(false);
@@ -71,6 +78,8 @@ export function MealFoodLog({
 
   async function runLookup() {
     setErr(null);
+    setOcrStatus(null);
+    setOcrOk(false);
     setLooking(true);
     setHits([]);
     try {
@@ -100,6 +109,56 @@ export function MealFoodLog({
           : "Open Food Facts (packaged fallback)",
     });
     setHits([]);
+    setPlateHint(false);
+    setOcrStatus(null);
+    setOcrOk(false);
+  }
+
+  async function runLabelOcr(dataUrl: string, base: MealFoodEntry) {
+    setErr(null);
+    setOcrOk(false);
+    setOcrStatus("Reading label…");
+    setPlateHint(false);
+    try {
+      const { ocrNutritionFromImage } = await import("../lib/nutritionOcr");
+      const result = await ocrNutritionFromImage(dataUrl, (s) => setOcrStatus(s));
+      if (result.found) {
+        onChange(mealId, {
+          ...base,
+          labelPhoto: dataUrl,
+          macros: { ...base.macros, ...result.macros, fluid: base.macros.fluid },
+          servingLabel: result.servingLabel || base.servingLabel || "1 serving (from label)",
+          source: "OCR from label photo",
+          applied: false,
+        });
+        setOcrStatus(`${result.summary} — tap Add to scoreboard below.`);
+        setOcrOk(true);
+        setErr(null);
+      } else {
+        // Keep the photo; leave macros alone
+        onChange(mealId, {
+          ...base,
+          labelPhoto: dataUrl,
+          applied: false,
+        });
+        setOcrStatus(
+          `${result.summary} Type a food name and tap Check nutrition facts, or enter values by hand.`,
+        );
+        setOcrOk(false);
+      }
+    } catch (ex) {
+      onChange(mealId, {
+        ...base,
+        labelPhoto: dataUrl,
+        applied: false,
+      });
+      setOcrStatus(
+        ex instanceof Error
+          ? `Could not read label (${ex.message}). Enter values by hand or use text lookup.`
+          : "Could not read label. Enter values by hand or use text lookup.",
+      );
+      setOcrOk(false);
+    }
   }
 
   async function onPhoto(
@@ -109,9 +168,23 @@ export function MealFoodLog({
     if (!file) return;
     try {
       const dataUrl = await compressImage(file);
-      patch({ [kind]: dataUrl });
+      const base: MealFoodEntry = {
+        ...e,
+        [kind]: dataUrl,
+        applied: false,
+      };
+      // Show photo immediately
+      onChange(mealId, base);
       setMorePhotoPrompt(true);
       setPhotoGate(false);
+
+      if (kind === "labelPhoto") {
+        await runLabelOcr(dataUrl, base);
+      } else if (kind === "servingPhoto" && macrosAreEmpty(e.macros)) {
+        setPlateHint(true);
+        setOcrStatus(null);
+        setOcrOk(false);
+      }
     } catch {
       setErr("Could not save that photo.");
     }
@@ -140,6 +213,7 @@ export function MealFoodLog({
     onApplyToScoreboard(mealId, scaled);
     setPhotoGate(false);
     setMorePhotoPrompt(false);
+    setOcrOk(false);
     const hasAnyPhoto = Boolean(e.servingPhoto || e.labelPhoto || extras.length);
     if (!hasAnyPhoto) {
       // Soft nudge after a successful add — never blocks the scoreboard
@@ -154,6 +228,8 @@ export function MealFoodLog({
   }
 
   const scaled = scaleMacros(e.macros, e.servings || 1);
+  const canAdd =
+    scaled.calories > 0 || scaled.protein > 0 || scaled.carbs > 0;
 
   return (
     <div className={`meal-food ${open ? "open" : ""}`}>
@@ -171,7 +247,7 @@ export function MealFoodLog({
           <p className="meal-food-hint">
             For <strong>{mealTitle}</strong>: look up a typical serving (Health Canada
             Canadian Nutrient File), snap the portion and the box label, then add macros to
-            the scoreboard above.
+            the scoreboard above. Label photos are read with on-device OCR.
           </p>
 
           <label className="field">
@@ -196,6 +272,22 @@ export function MealFoodLog({
           </div>
 
           {err && <p className="meal-food-err">{err}</p>}
+          {ocrStatus && (
+            <p
+              className={ocrOk ? "meal-food-ocr ok" : "meal-food-ocr"}
+              role="status"
+              aria-live="polite"
+            >
+              {ocrStatus}
+            </p>
+          )}
+          {plateHint && macrosAreEmpty(e.macros) && (
+            <p className="meal-food-ocr hint" role="status">
+              Plate photos alone don&apos;t set nutrition. Type a food name and tap{" "}
+              <strong>Check nutrition facts</strong>, or add a{" "}
+              <strong>box / label nutrition facts</strong> photo for OCR.
+            </p>
+          )}
 
           {hits.length > 0 && (
             <ul className="nutrition-hits">
@@ -227,7 +319,7 @@ export function MealFoodLog({
             <input
               type="text"
               value={e.servingLabel}
-              placeholder="e.g. 1 cup (240 g) or 1 container"
+              placeholder="e.g. 1 cup (240 g) or 1 bottle"
               onChange={(ev) => patch({ servingLabel: ev.target.value })}
             />
           </label>
@@ -336,7 +428,7 @@ export function MealFoodLog({
             </div>
             <div className="photo-slot photo-slot-label">
               <span className="photo-slot-title">Box / label nutrition facts</span>
-              <p className="photo-slot-hint">Camera or gallery — label reference</p>
+              <p className="photo-slot-hint">Camera or gallery — OCR fills macros</p>
               {e.labelPhoto ? (
                 <img src={e.labelPhoto} alt="Nutrition label" />
               ) : (
@@ -529,12 +621,8 @@ export function MealFoodLog({
             </p>
             <button
               type="button"
-              className="btn-primary"
-              disabled={
-                scaled.calories <= 0 &&
-                scaled.protein <= 0 &&
-                scaled.carbs <= 0
-              }
+              className={`btn-primary${ocrOk && canAdd ? " pulse-hint" : ""}`}
+              disabled={!canAdd}
               onClick={() => tryAddToScoreboard()}
             >
               {e.applied ? "Update scoreboard" : "Add to scoreboard"}

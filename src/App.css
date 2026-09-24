@@ -324,6 +324,32 @@ h3 { color: var(--navy); font-size: 0.95rem; margin: 1rem 0 0.4rem; }
   font-size: 0.8rem;
   color: #b33;
 }
+.meal-food-ocr {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #5a5348;
+  background: #f3efe6;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+}
+.meal-food-ocr.ok {
+  color: #1a5c2e;
+  background: #e5f5ea;
+  font-weight: 600;
+}
+.meal-food-ocr.hint {
+  color: #6a4a12;
+  background: #fff4d6;
+}
+.btn-primary.pulse-hint {
+  box-shadow: 0 0 0 3px rgba(26, 92, 46, 0.35);
+  animation: scoreboard-pulse 1.4s ease-in-out 3;
+}
+@keyframes scoreboard-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(26, 92, 46, 0.25); }
+  50% { box-shadow: 0 0 0 6px rgba(26, 92, 46, 0.15); }
+}
 .meal-food-source {
   margin: 0;
   font-size: 0.72rem;
