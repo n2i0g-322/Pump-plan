@@ -4,6 +4,12 @@
  * Not medical advice.
  */
 
+import {
+  cnfSourceUrl,
+  friendlyDisplayName,
+  offSourceUrl,
+} from "./displayName";
+
 export type MacroSet = {
   calories: number;
   protein: number;
@@ -16,12 +22,16 @@ export type MacroSet = {
 
 export type NutritionHit = {
   id: string;
+  /** Official / full name (detail view). */
   name: string;
+  /** Short friendly name for tiles. */
+  displayName: string;
   brand?: string;
   servingLabel: string;
   servingGrams?: number;
   perServing: MacroSet;
   source: "cnf" | "openfoodfacts";
+  sourceUrl?: string;
   imageUrl?: string;
 };
 
@@ -186,11 +196,13 @@ function cnfToHits(foods: CnfFood[], limit = 10): NutritionHit[] {
     hits.push({
       id: `cnf-${food.id}`,
       name: food.name,
+      displayName: friendlyDisplayName(food.name),
       brand: food.group || undefined,
       servingLabel: `${measure.label} (${grams} g)`,
       servingGrams: grams,
       perServing: from100g(food.per100, grams),
       source: "cnf",
+      sourceUrl: cnfSourceUrl(food.id, food.name),
     });
   }
   return hits;
@@ -267,14 +279,17 @@ async function searchOpenFoodFacts(query: string): Promise<NutritionHit[]> {
     const name = (p.product_name || q).trim();
     if (!name) continue;
     if (per100.calories <= 0 && per100.protein <= 0 && per100.carbs <= 0) continue;
+    const code = p.code?.trim();
     hits.push({
-      id: `off-${p.code ?? name}`,
+      id: `off-${code ?? name}`,
       name,
+      displayName: friendlyDisplayName(name),
       brand: p.brands?.split(",")[0]?.trim(),
       servingLabel: p.serving_size?.trim() || `${grams} g (typical)`,
       servingGrams: grams,
       perServing: from100g(per100, grams),
       source: "openfoodfacts",
+      sourceUrl: code ? offSourceUrl(code) : "https://world.openfoodfacts.org/",
       imageUrl: p.image_front_small_url,
     });
   }
@@ -284,6 +299,7 @@ async function searchOpenFoodFacts(query: string): Promise<NutritionHit[]> {
 /**
  * Look up nutrition: Canadian Nutrient File first, then Open Food Facts
  * only if CNF has no good matches (e.g. branded packaged foods).
+ * Prefer searchAllFoods for UI — it also merges the fast-food index.
  */
 export async function lookupNutrition(query: string): Promise<NutritionHit[]> {
   const cnf = await searchCnf(query);
@@ -302,6 +318,25 @@ export async function lookupNutrition(query: string): Promise<NutritionHit[]> {
   } catch {
     return cnf;
   }
+}
+
+/** Always merge CNF + OFF (for unified search). */
+export async function lookupNutritionMerged(query: string): Promise<NutritionHit[]> {
+  const cnf = await searchCnf(query);
+  let off: NutritionHit[] = [];
+  try {
+    off = await searchOpenFoodFacts(query);
+  } catch {
+    off = [];
+  }
+  const seen = new Set(cnf.map((h) => h.name.toLowerCase()));
+  const merged = [...cnf];
+  for (const h of off) {
+    if (seen.has(h.name.toLowerCase())) continue;
+    seen.add(h.name.toLowerCase());
+    merged.push(h);
+  }
+  return merged;
 }
 
 /** Compress an image File for localStorage (max edge ~960px, JPEG ~0.7). */

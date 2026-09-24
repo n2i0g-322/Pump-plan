@@ -8,6 +8,7 @@ import {
   searchAllFoods,
   type FoodSearchHit,
 } from "../lib/foodSearch";
+import { NutritionHitsGrid } from "./NutritionHitsGrid";
 import { compressImage, type MacroSet } from "../lib/nutrition";
 import {
   itemFromFoodName,
@@ -257,7 +258,7 @@ export function PlateItemsPanel({
                 foodName={item.name}
                 onPick={(hit) => {
                   onUpdateItem(item.id, {
-                    name: hit.brand ? `${hit.name} (${hit.brand})` : hit.name,
+                    name: hit.brand ? `${hit.displayName} (${hit.brand})` : hit.displayName,
                     macros: hit.perServing,
                     servingLabel: hit.servingLabel,
                     source:
@@ -416,35 +417,7 @@ function ManualSearchPanel({
       </div>
       {busy && <p className="meal-food-ocr">Searching…</p>}
       {err && <p className="meal-food-err">{err}</p>}
-      <ul className="nutrition-hits">
-        {hits.map((h) => (
-          <li key={h.id}>
-            <button type="button" onClick={() => onPick(h)}>
-              {h.imageUrl && (
-                <img src={h.imageUrl} alt="" width={40} height={40} />
-              )}
-              <span>
-                <strong>{h.name}</strong>
-                {h.brand ? ` · ${h.brand}` : ""}
-                <br />
-                <small>
-                  {h.source === "cnf"
-                    ? "🇨🇦 CNF · "
-                    : h.source === "openfoodfacts"
-                      ? "OFF · "
-                      : h.source === "fastfood"
-                        ? "Fast-food index · "
-                        : "Saved · "}
-                  {h.servingLabel} · {h.perServing.calories} kcal · P{" "}
-                  {h.perServing.protein}g · C {h.perServing.carbs}g · F{" "}
-                  {h.perServing.fat}g
-                  {h.note ? ` · ${h.note}` : ""}
-                </small>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <NutritionHitsGrid key={q} hits={hits} onPick={onPick} />
     </div>
   );
 }

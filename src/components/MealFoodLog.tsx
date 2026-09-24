@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { rememberConfirmedFood } from "../lib/confirmedFoods";
+import { searchAllFoods, type FoodSearchHit } from "../lib/foodSearch";
 import {
   EMPTY_MACROS,
   addMacros,
   compressImage,
-  lookupNutrition,
   scaleMacros,
   type MacroSet,
-  type NutritionHit,
 } from "../lib/nutrition";
+import { NutritionHitsGrid } from "./NutritionHitsGrid";
 import { analyzePlate } from "../lib/plateAnalyze";
 import { formatMlTotal } from "../lib/units";
 import {
@@ -115,7 +115,7 @@ export function MealFoodLog({
   const extras = e.extraPhotos ?? [];
   const plateItems = e.plateItems ?? [];
   const [looking, setLooking] = useState(false);
-  const [hits, setHits] = useState<NutritionHit[]>([]);
+  const [hits, setHits] = useState<FoodSearchHit[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [photoStatus, setPhotoStatus] = useState<string | null>(null);
   const [photoStatusOk, setPhotoStatusOk] = useState(false);
@@ -353,7 +353,7 @@ export function MealFoodLog({
     setLooking(true);
     setHits([]);
     try {
-      const results = await lookupNutrition(e.description);
+      const results = await searchAllFoods(e.description);
       if (!results.length) {
         setErr(
           "No matches. Try a simpler name, or enter values from the label by hand.",
@@ -367,17 +367,22 @@ export function MealFoodLog({
     }
   }
 
-  function pickHit(h: NutritionHit) {
+  function pickHit(h: FoodSearchHit) {
+    const sourceNote =
+      h.source === "cnf"
+        ? "Health Canada CNF (typical serving)"
+        : h.source === "openfoodfacts"
+          ? "Open Food Facts (packaged fallback)"
+          : h.source === "fastfood"
+            ? `Fast-food index · ${h.brand ?? "menu"} (approx.)`
+            : h.note || "Previously confirmed";
     const next: MealFoodEntry = {
       ...e,
-      description: h.brand ? `${h.name} (${h.brand})` : h.name,
+      description: h.brand ? `${h.displayName} (${h.brand})` : h.displayName,
       servingLabel: h.servingLabel,
       servings: 1,
       macros: h.perServing,
-      source:
-        h.source === "cnf"
-          ? "Health Canada CNF (typical serving)"
-          : "Open Food Facts (packaged fallback)",
+      source: sourceNote,
       applied: e.applied,
       lastApplied: e.lastApplied,
     };
@@ -686,28 +691,7 @@ export function MealFoodLog({
           {err && <p className="meal-food-err">{err}</p>}
 
           {hits.length > 0 && (
-            <ul className="nutrition-hits">
-              {hits.map((h) => (
-                <li key={h.id}>
-                  <button type="button" onClick={() => pickHit(h)}>
-                    {h.imageUrl && (
-                      <img src={h.imageUrl} alt="" width={40} height={40} />
-                    )}
-                    <span>
-                      <strong>{h.name}</strong>
-                      {h.brand ? ` · ${h.brand}` : ""}
-                      <br />
-                      <small>
-                        {h.source === "cnf" ? "🇨🇦 CNF · " : "OFF · "}
-                        {h.servingLabel} · {h.perServing.calories} kcal · P{" "}
-                        {h.perServing.protein}g · C {h.perServing.carbs}g · F{" "}
-                        {h.perServing.fat}g
-                      </small>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <NutritionHitsGrid key={e.description} hits={hits} onPick={pickHit} />
           )}
 
           <div className="photo-row">
