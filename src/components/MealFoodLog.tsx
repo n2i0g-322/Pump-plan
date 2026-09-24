@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from "react";
+import { rememberConfirmedFood } from "../lib/confirmedFoods";
 import {
   EMPTY_MACROS,
+  addMacros,
   compressImage,
   lookupNutrition,
   scaleMacros,
   type MacroSet,
   type NutritionHit,
 } from "../lib/nutrition";
+import { analyzePlate } from "../lib/plateAnalyze";
 import { formatMlTotal } from "../lib/units";
+import {
+  PlateItemsPanel,
+  buildPlateItemFromName,
+  type PlateItem,
+} from "./PlateItemsPanel";
 import { VolumeFields } from "./VolumeFields";
+
+export type { PlateItem };
 
 export type MealFoodEntry = {
   description: string;
@@ -20,6 +30,8 @@ export type MealFoodEntry = {
   labelPhoto?: string;
   /** Extra shots (second angle, ingredients list, etc.) */
   extraPhotos?: string[];
+  /** Detected / confirmed foods from the serving portion photo */
+  plateItems?: PlateItem[];
   applied: boolean;
   /** Last macros pushed to the day scoreboard (for replace-on-update). */
   lastApplied?: MacroSet;
@@ -52,6 +64,7 @@ const emptyEntry = (): MealFoodEntry => ({
   servings: 1,
   macros: { ...EMPTY_MACROS },
   extraPhotos: [],
+  plateItems: [],
   applied: false,
 });
 
@@ -69,6 +82,28 @@ function editedSource(prev: string | undefined): string {
   return "manual / label";
 }
 
+function newItemId(): string {
+  return `pi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Sum macros of confirmed plate items (servings applied outside). */
+export function sumConfirmedPlateMacros(items: PlateItem[] | undefined): MacroSet {
+  let sum = { ...EMPTY_MACROS };
+  for (const it of items ?? []) {
+    if (it.status !== "confirmed") continue;
+    sum = addMacros(sum, it.macros);
+  }
+  return sum;
+}
+
+function descriptionFromItems(items: PlateItem[]): string {
+  const names = items
+    .filter((i) => i.status === "confirmed" || i.status === "pending")
+    .filter((i) => i.status === "confirmed")
+    .map((i) => i.name);
+  return names.join(", ");
+}
+
 export function MealFoodLog({
   mealId,
   mealTitle,
@@ -78,19 +113,27 @@ export function MealFoodLog({
 }: Props) {
   const e = entry ?? emptyEntry();
   const extras = e.extraPhotos ?? [];
+  const plateItems = e.plateItems ?? [];
   const [looking, setLooking] = useState(false);
   const [hits, setHits] = useState<NutritionHit[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [photoStatus, setPhotoStatus] = useState<string | null>(null);
   const [photoStatusOk, setPhotoStatusOk] = useState(false);
-  const [plateHint, setPlateHint] = useState(false);
-  const [open, setOpen] = useState(Boolean(e.description || e.applied));
+  const [open, setOpen] = useState(Boolean(e.description || e.applied || e.servingPhoto));
   /** After a photo lands: ask if another is needed */
   const [morePhotoPrompt, setMorePhotoPrompt] = useState(false);
   /** Soft gate before scoreboard when nothing photographed yet */
   const [photoGate, setPhotoGate] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeStatus, setAnalyzeStatus] = useState<string | null>(null);
+  const [analyzeMeta, setAnalyzeMeta] = useState<{
+    mode: "model" | "fallback";
+    message: string;
+    suggestions: string[];
+  } | null>(null);
   const extraInputRef = useRef<HTMLInputElement>(null);
   const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyzeGen = useRef(0);
   const latestRef = useRef(e);
   latestRef.current = e;
 
@@ -105,7 +148,6 @@ export function MealFoodLog({
       ...e,
       ...partial,
       applied: keepApplied ? e.applied : false,
-      // Keep lastApplied for replace-on-update unless caller overrides it.
       lastApplied:
         partial.lastApplied !== undefined ? partial.lastApplied : e.lastApplied,
     });
@@ -138,7 +180,6 @@ export function MealFoodLog({
   function scheduleReapply(next: MealFoodEntry) {
     if (applyTimer.current) clearTimeout(applyTimer.current);
     applyTimer.current = setTimeout(() => {
-      // Prefer latest typed values (may have changed during the debounce).
       const cur = latestRef.current;
       const macros = next.macros;
       const servings = next.servings;
@@ -150,10 +191,159 @@ export function MealFoodLog({
         source: next.source ?? cur.source,
         servingLabel: next.servingLabel ?? cur.servingLabel,
         description: next.description ?? cur.description,
+        plateItems: next.plateItems ?? cur.plateItems,
       });
       setPhotoStatus("Added to scoreboard");
       setPhotoStatusOk(true);
     }, 400);
+  }
+
+  /**
+   * Recompute meal macros from confirmed plate items and apply (replace semantics).
+   * Pending/excluded items do not count — avoids double-count with lastApplied.
+   */
+  function applyConfirmedItems(
+    items: PlateItem[],
+    base: MealFoodEntry,
+    statusMsg?: string,
+  ) {
+    const confirmed = items.filter((i) => i.status === "confirmed");
+    const macros = sumConfirmedPlateMacros(items);
+    const desc =
+      descriptionFromItems(items) || base.description || "Plate items";
+    const next: MealFoodEntry = {
+      ...base,
+      plateItems: items,
+      macros,
+      description: desc,
+      servingLabel:
+        confirmed.length === 1
+          ? confirmed[0].servingLabel || base.servingLabel
+          : confirmed.length > 1
+            ? `${confirmed.length} items on plate`
+            : base.servingLabel,
+      source:
+        confirmed.length > 0
+          ? `Plate items (${confirmed.map((c) => c.source).join(", ")})`
+          : base.source,
+      applied: base.applied,
+      lastApplied: base.lastApplied,
+    };
+
+    for (const c of confirmed) {
+      rememberConfirmedFood({
+        name: c.name,
+        servingLabel: c.servingLabel,
+        macros: c.macros,
+        source: c.source,
+      });
+    }
+
+    if (confirmed.length === 0 || !canApplyMacros(scaleMacros(macros, next.servings || 1))) {
+      onChange(mealId, { ...next, applied: false });
+      if (statusMsg) {
+        setPhotoStatus(statusMsg);
+        setPhotoStatusOk(false);
+      }
+      return;
+    }
+
+    applyEntry(next, {
+      entryUpdate: {
+        description: next.description,
+        servingLabel: next.servingLabel,
+        servings: next.servings,
+        macros: next.macros,
+        source: next.source,
+        servingPhoto: next.servingPhoto,
+        labelPhoto: next.labelPhoto,
+        extraPhotos: next.extraPhotos,
+        plateItems: items,
+      },
+      status: statusMsg ?? "Confirmed items added to scoreboard",
+    });
+  }
+
+  async function runPlateAnalysis(
+    dataUrl: string,
+    base: MealFoodEntry,
+    opts?: { forceFallback?: boolean; excludeNames?: string[] },
+  ) {
+    const gen = ++analyzeGen.current;
+    setAnalyzing(true);
+    setAnalyzeStatus("Analyzing plate…");
+    setErr(null);
+    try {
+      const confirmed = (base.plateItems ?? []).filter((i) => i.status === "confirmed");
+      const excluded = (base.plateItems ?? []).filter((i) => i.status === "excluded");
+      const excludeNames = [
+        ...(opts?.excludeNames ?? []),
+        ...excluded.map((i) => i.name),
+        ...confirmed.map((i) => i.name),
+      ];
+
+      const result = await analyzePlate(dataUrl, {
+        excludeNames,
+        forceFallback: opts?.forceFallback,
+        onProgress: (s) => {
+          if (analyzeGen.current === gen) setAnalyzeStatus(s);
+        },
+      });
+
+      if (analyzeGen.current !== gen) return;
+
+      setAnalyzeMeta({
+        mode: result.mode,
+        message: result.message,
+        suggestions: result.suggestions,
+      });
+
+      const pending: PlateItem[] = result.items.map((det) => ({
+        id: newItemId(),
+        name: det.name,
+        confidence: det.confidence,
+        macros: det.macros,
+        servingLabel: det.servingLabel,
+        source: det.source,
+        status: "pending" as const,
+      }));
+
+      const merged: PlateItem[] = [...confirmed, ...excluded, ...pending];
+      const next: MealFoodEntry = {
+        ...base,
+        plateItems: merged,
+        applied: base.applied,
+        lastApplied: base.lastApplied,
+      };
+      onChange(mealId, next);
+      setAnalyzeStatus(
+        result.mode === "model"
+          ? `Found ${pending.length} item(s) — confirm to add`
+          : null,
+      );
+      setPhotoStatusOk(result.mode === "model");
+    } catch (ex) {
+      if (analyzeGen.current !== gen) return;
+      setAnalyzeMeta({
+        mode: "fallback",
+        message:
+          "Plate analysis failed. Tap chips or Manual search. Estimates are approximate, not medical advice.",
+        suggestions: [
+          "Eggs",
+          "Toast",
+          "Oatmeal",
+          "Greek yogurt",
+          "Banana",
+          "Chicken breast",
+          "Rice",
+          "Salad",
+        ],
+      });
+      setAnalyzeStatus(ex instanceof Error ? ex.message : "Analysis failed");
+      setPhotoStatusOk(false);
+    } finally {
+      if (analyzeGen.current === gen) setAnalyzing(false);
+    }
   }
 
   async function runLookup() {
@@ -192,9 +382,7 @@ export function MealFoodLog({
       lastApplied: e.lastApplied,
     };
     setHits([]);
-    setPlateHint(false);
     setErr(null);
-    // Single atomic apply so lookup macros land on scoreboard + pie immediately.
     if (
       !applyEntry(next, {
         entryUpdate: {
@@ -206,6 +394,7 @@ export function MealFoodLog({
           servingPhoto: next.servingPhoto,
           labelPhoto: next.labelPhoto,
           extraPhotos: next.extraPhotos,
+          plateItems: next.plateItems,
         },
         status: "Added to scoreboard",
       })
@@ -220,7 +409,6 @@ export function MealFoodLog({
     setErr(null);
     setPhotoStatusOk(false);
     setPhotoStatus("Reading label…");
-    setPlateHint(false);
     try {
       const { ocrNutritionFromImage } = await import("../lib/nutritionOcr");
       const result = await ocrNutritionFromImage(dataUrl, (s) => setPhotoStatus(s));
@@ -250,6 +438,7 @@ export function MealFoodLog({
             servingPhoto: next.servingPhoto,
             labelPhoto: dataUrl,
             extraPhotos: next.extraPhotos,
+            plateItems: next.plateItems,
           },
           status: `${result.summary} — Added to scoreboard`,
         });
@@ -302,17 +491,20 @@ export function MealFoodLog({
         applied: e.applied,
         lastApplied: e.lastApplied,
       };
-      // Show photo immediately
       onChange(mealId, base);
       setMorePhotoPrompt(true);
       setPhotoGate(false);
 
       if (kind === "labelPhoto") {
         await runLabelOcr(dataUrl, base);
-      } else if (kind === "servingPhoto" && macrosAreEmpty(e.macros)) {
-        setPlateHint(true);
-        setPhotoStatus(null);
-        setPhotoStatusOk(false);
+      } else if (kind === "servingPhoto") {
+        // Fresh plate photo → analyze (keep prior confirmed if re-shooting)
+        const resetBase: MealFoodEntry = {
+          ...base,
+          plateItems: (base.plateItems ?? []).filter((i) => i.status === "confirmed"),
+        };
+        onChange(mealId, resetBase);
+        await runPlateAnalysis(dataUrl, resetBase);
       }
     } catch {
       setErr("Could not save that photo.");
@@ -345,7 +537,6 @@ export function MealFoodLog({
       lastApplied: e.lastApplied,
     };
     onChange(mealId, next);
-    setPlateHint(false);
     if (canApplyMacros(scaleMacros(macros, next.servings || 1))) {
       scheduleReapply(next);
     }
@@ -367,7 +558,81 @@ export function MealFoodLog({
   function tryAddToScoreboard() {
     const scaled = scaleMacros(e.macros, e.servings || 1);
     if (!canApplyMacros(scaled)) return;
-    applyEntry(e, { status: "Added to scoreboard" });
+    applyEntry(e, {
+      entryUpdate: { plateItems: e.plateItems },
+      status: "Added to scoreboard",
+    });
+  }
+
+  function handleRetest(itemId: string) {
+    const photo = e.servingPhoto;
+    if (!photo) return;
+    const items = plateItems.map((i) =>
+      i.id === itemId ? { ...i, status: "excluded" as const } : i,
+    );
+    const base = { ...e, plateItems: items };
+    onChange(mealId, base);
+    const excludedName = plateItems.find((i) => i.id === itemId)?.name;
+    void runPlateAnalysis(photo, base, {
+      excludeNames: excludedName ? [excludedName] : [],
+    });
+  }
+
+  function handleConfirm(itemId: string) {
+    const items = plateItems.map((i) =>
+      i.id === itemId ? { ...i, status: "confirmed" as const } : i,
+    );
+    applyConfirmedItems(items, e, "Item confirmed — added to scoreboard / pie");
+  }
+
+  function handleUnconfirm(itemId: string) {
+    const items = plateItems.map((i) =>
+      i.id === itemId ? { ...i, status: "pending" as const } : i,
+    );
+    applyConfirmedItems(items, e, "Item unconfirmed — scoreboard updated");
+  }
+
+  function handleUpdateItem(itemId: string, partial: Partial<PlateItem>) {
+    const items = plateItems.map((i) =>
+      i.id === itemId ? { ...i, ...partial } : i,
+    );
+    // If already confirmed, re-apply; else just patch
+    const target = items.find((i) => i.id === itemId);
+    if (target?.status === "confirmed") {
+      applyConfirmedItems(items, e, "Item updated on scoreboard");
+    } else {
+      patch({ plateItems: items }, true);
+    }
+  }
+
+  async function handleAddFromSuggestion(name: string) {
+    const item = await buildPlateItemFromName(name);
+    // Avoid dup pending with same name
+    const exists = plateItems.some(
+      (i) =>
+        i.status !== "excluded" &&
+        i.name.toLowerCase() === item.name.toLowerCase(),
+    );
+    if (exists) return;
+    patch({ plateItems: [...plateItems, item] }, true);
+    setAnalyzeMeta((m) => {
+      if (m) return m;
+      return {
+        mode: "fallback",
+        message:
+          "Added from suggestions. Confirm to roll into scoreboard. Approximate — not medical advice.",
+        suggestions: [
+          "Eggs",
+          "Toast",
+          "Oatmeal",
+          "Greek yogurt",
+          "Banana",
+          "Chicken breast",
+          "Rice",
+          "Salad",
+        ],
+      };
+    });
   }
 
   const scaled = scaleMacros(e.macros, e.servings || 1);
@@ -375,6 +640,7 @@ export function MealFoodLog({
   const hasPhoto = Boolean(e.servingPhoto || e.labelPhoto || extras.length);
   const showNutrientPanel =
     hasPhoto || !macrosAreEmpty(e.macros) || e.applied || Boolean(e.source);
+  const showPlatePanel = Boolean(e.servingPhoto) || plateItems.length > 0 || analyzing;
 
   return (
     <div className={`meal-food ${open ? "open" : ""}`}>
@@ -390,10 +656,10 @@ export function MealFoodLog({
       {open && (
         <div className="meal-food-body">
           <p className="meal-food-hint">
-            For <strong>{mealTitle}</strong>: look up a typical serving (Health Canada
-            Canadian Nutrient File), snap the portion and the box label, then macros
-            roll into the scoreboard and pie. Label photos are read with on-device OCR;
-            edit the numbers under the photo anytime.
+            For <strong>{mealTitle}</strong>: snap the serving portion to detect foods
+            (approx. estimates under each name), confirm items into the scoreboard/pie,
+            or look up CNF / Open Food Facts / fast-food index. Label photos use on-device
+            OCR. Estimates are not medical advice.
           </p>
 
           <label className="field">
@@ -447,7 +713,9 @@ export function MealFoodLog({
           <div className="photo-row">
             <div className="photo-slot photo-slot-serving">
               <span className="photo-slot-title">Serving portion photo</span>
-              <p className="photo-slot-hint">Camera — what&apos;s actually on the plate</p>
+              <p className="photo-slot-hint">
+                Camera — detect foods on the plate (approx.)
+              </p>
               {e.servingPhoto ? (
                 <img src={e.servingPhoto} alt="Serving portion" />
               ) : (
@@ -465,6 +733,19 @@ export function MealFoodLog({
                   }}
                 />
               </label>
+              {e.servingPhoto && (
+                <label className="photo-ctrl gallery">
+                  <span>Replace / gallery</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(ev) => {
+                      void onPhoto("servingPhoto", ev.target.files?.[0] ?? null);
+                      ev.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
             </div>
             <div className="photo-slot photo-slot-label">
               <span className="photo-slot-title">Box / label nutrition facts</span>
@@ -502,6 +783,30 @@ export function MealFoodLog({
             </div>
           </div>
 
+          {showPlatePanel && (
+            <PlateItemsPanel
+              plateItems={plateItems}
+              analyzing={analyzing}
+              analyzeStatus={analyzeStatus}
+              analyzeMeta={analyzeMeta}
+              onRetest={handleRetest}
+              onConfirm={handleConfirm}
+              onUnconfirm={handleUnconfirm}
+              onUpdateItem={handleUpdateItem}
+              onAddFromSuggestion={(name) => void handleAddFromSuggestion(name)}
+              onAnalyzeAgain={() => {
+                if (e.servingPhoto) void runPlateAnalysis(e.servingPhoto, e);
+              }}
+              onSkipModel={() => {
+                analyzeGen.current += 1;
+                setAnalyzing(false);
+                if (e.servingPhoto) {
+                  void runPlateAnalysis(e.servingPhoto, e, { forceFallback: true });
+                }
+              }}
+            />
+          )}
+
           {extras.length > 0 && (
             <div className="extra-photo-grid">
               {extras.map((src, i) => (
@@ -520,8 +825,7 @@ export function MealFoodLog({
             </div>
           )}
 
-          {/* Status + editable nutrients directly under photos */}
-          {(photoStatus || (plateHint && macrosAreEmpty(e.macros))) && (
+          {(photoStatus || analyzing) && !showPlatePanel && (
             <div className="under-photo-status">
               {photoStatus && (
                 <p
@@ -532,24 +836,31 @@ export function MealFoodLog({
                   {photoStatus}
                 </p>
               )}
-              {plateHint && macrosAreEmpty(e.macros) && (
-                <p className="meal-food-ocr hint" role="status">
-                  Plate photos alone don&apos;t set nutrition. Type a food name and tap{" "}
-                  <strong>Check nutrition facts</strong>, add a{" "}
-                  <strong>box / label</strong> photo for OCR, or enter values below.
-                </p>
-              )}
+            </div>
+          )}
+
+          {photoStatus && showPlatePanel && (
+            <div className="under-photo-status">
+              <p
+                className={photoStatusOk ? "meal-food-ocr ok" : "meal-food-ocr"}
+                role="status"
+                aria-live="polite"
+              >
+                {photoStatus}
+              </p>
             </div>
           )}
 
           {showNutrientPanel && (
             <div className="under-photo-nutrients" aria-label="Nutrients for this food">
               <div className="under-photo-nutrients-head">
-                <strong>Nutrients</strong>
+                <strong>Meal totals</strong>
                 <span className="under-photo-nutrients-sub">
-                  {e.applied
-                    ? "On scoreboard · edit to update pie"
-                    : "Edit under the photo · auto-adds when set"}
+                  {plateItems.some((i) => i.status === "confirmed")
+                    ? "Sum of confirmed plate items · edit to tweak"
+                    : e.applied
+                      ? "On scoreboard · edit to update pie"
+                      : "Edit under the photo · auto-adds when set"}
                 </span>
               </div>
 
@@ -596,10 +907,7 @@ export function MealFoodLog({
                       step={key === "calories" || key === "calcium" ? 1 : 0.1}
                       value={e.macros[key]}
                       onChange={(ev) =>
-                        updateMacroField(
-                          key,
-                          Number(ev.target.value) || 0,
-                        )
+                        updateMacroField(key, Number(ev.target.value) || 0)
                       }
                     />
                   </label>
