@@ -176,7 +176,7 @@ export default function App() {
           onNote={(id, note) => setNote(year, monthIndex, day.id, id, note)}
           onNutrient={(id, value) => setNutrient(year, monthIndex, day.id, id, value)}
           onFoodLog={(id, entry) => setFoodLog(year, monthIndex, day.id, id, entry)}
-          onApplyFood={(id, macros) => applyFoodMacros(year, monthIndex, day.id, id, macros)}
+          onApplyFood={(id, macros, entryUpdate) => applyFoodMacros(year, monthIndex, day.id, id, macros, entryUpdate)}
           onPumpedOz={(v) => setPumpedOz(year, monthIndex, day.id, v)}
           onFedOz={(v) => setFedOz(year, monthIndex, day.id, v)}
           onFreezerBankOz={(v) => setFreezerBankOz(year, monthIndex, day.id, v)}
@@ -266,7 +266,7 @@ function DayView({
   onNote: (id: string, note: string) => void;
   onNutrient: (id: string, value: number) => void;
   onFoodLog: (id: string, entry: MealFoodEntry) => void;
-  onApplyFood: (id: string, macros: MacroSet) => void;
+  onApplyFood: (id: string, macros: MacroSet, entryUpdate?: Partial<MealFoodEntry>) => void;
   onPumpedOz: (v: number) => void;
   onFedOz: (v: number) => void;
   onFreezerBankOz: (v: number) => void;

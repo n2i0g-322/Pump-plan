@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   EMPTY_MACROS,
   compressImage,
@@ -30,8 +30,21 @@ type Props = {
   mealTitle: string;
   entry: MealFoodEntry | undefined;
   onChange: (mealId: string, entry: MealFoodEntry) => void;
-  onApplyToScoreboard: (mealId: string, macros: MacroSet) => void;
+  onApplyToScoreboard: (
+    mealId: string,
+    macros: MacroSet,
+    entryUpdate?: Partial<MealFoodEntry>,
+  ) => void;
 };
+
+const MACRO_FIELDS = [
+  ["calories", "kcal"],
+  ["protein", "g"],
+  ["carbs", "g"],
+  ["sugar", "g"],
+  ["fat", "g"],
+  ["calcium", "mg"],
+] as const;
 
 const emptyEntry = (): MealFoodEntry => ({
   description: "",
@@ -46,6 +59,16 @@ function macrosAreEmpty(m: MacroSet): boolean {
   return m.calories <= 0 && m.protein <= 0 && m.carbs <= 0 && m.fat <= 0;
 }
 
+function canApplyMacros(m: MacroSet): boolean {
+  return m.calories > 0 || m.protein > 0 || m.carbs > 0;
+}
+
+function editedSource(prev: string | undefined): string {
+  if (prev?.includes("manual")) return prev;
+  if (prev) return `${prev} · edited`;
+  return "manual / label";
+}
+
 export function MealFoodLog({
   mealId,
   mealTitle,
@@ -58,8 +81,8 @@ export function MealFoodLog({
   const [looking, setLooking] = useState(false);
   const [hits, setHits] = useState<NutritionHit[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
-  const [ocrOk, setOcrOk] = useState(false);
+  const [photoStatus, setPhotoStatus] = useState<string | null>(null);
+  const [photoStatusOk, setPhotoStatusOk] = useState(false);
   const [plateHint, setPlateHint] = useState(false);
   const [open, setOpen] = useState(Boolean(e.description || e.applied));
   /** After a photo lands: ask if another is needed */
@@ -67,19 +90,76 @@ export function MealFoodLog({
   /** Soft gate before scoreboard when nothing photographed yet */
   const [photoGate, setPhotoGate] = useState(false);
   const extraInputRef = useRef<HTMLInputElement>(null);
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = useRef(e);
+  latestRef.current = e;
+
+  useEffect(() => {
+    return () => {
+      if (applyTimer.current) clearTimeout(applyTimer.current);
+    };
+  }, []);
 
   function patch(partial: Partial<MealFoodEntry>, keepApplied = false) {
     onChange(mealId, {
       ...e,
       ...partial,
       applied: keepApplied ? e.applied : false,
+      // Keep lastApplied for replace-on-update unless caller overrides it.
+      lastApplied:
+        partial.lastApplied !== undefined ? partial.lastApplied : e.lastApplied,
     });
+  }
+
+  /** Push scaled macros to day scoreboard (replace-on-update via lastApplied). */
+  function applyEntry(
+    next: MealFoodEntry,
+    opts?: { entryUpdate?: Partial<MealFoodEntry>; status?: string },
+  ) {
+    const scaled = scaleMacros(next.macros, next.servings || 1);
+    if (!canApplyMacros(scaled)) return false;
+    onApplyToScoreboard(mealId, scaled, opts?.entryUpdate);
+    setPhotoGate(false);
+    setMorePhotoPrompt(false);
+    if (opts?.status) {
+      setPhotoStatus(opts.status);
+      setPhotoStatusOk(true);
+    } else if (next.servingPhoto || next.labelPhoto || (next.extraPhotos?.length ?? 0) > 0) {
+      setPhotoStatus("Added to scoreboard");
+      setPhotoStatusOk(true);
+    }
+    const hasAnyPhoto = Boolean(
+      next.servingPhoto || next.labelPhoto || (next.extraPhotos?.length ?? 0) > 0,
+    );
+    if (!hasAnyPhoto) setPhotoGate(true);
+    return true;
+  }
+
+  function scheduleReapply(next: MealFoodEntry) {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    applyTimer.current = setTimeout(() => {
+      // Prefer latest typed values (may have changed during the debounce).
+      const cur = latestRef.current;
+      const macros = next.macros;
+      const servings = next.servings;
+      const scaled = scaleMacros(macros, servings || 1);
+      if (!canApplyMacros(scaled)) return;
+      onApplyToScoreboard(mealId, scaled, {
+        macros,
+        servings,
+        source: next.source ?? cur.source,
+        servingLabel: next.servingLabel ?? cur.servingLabel,
+        description: next.description ?? cur.description,
+      });
+      setPhotoStatus("Added to scoreboard");
+      setPhotoStatusOk(true);
+    }, 400);
   }
 
   async function runLookup() {
     setErr(null);
-    setOcrStatus(null);
-    setOcrOk(false);
+    setPhotoStatus(null);
+    setPhotoStatusOk(false);
     setLooking(true);
     setHits([]);
     try {
@@ -98,7 +178,8 @@ export function MealFoodLog({
   }
 
   function pickHit(h: NutritionHit) {
-    patch({
+    const next: MealFoodEntry = {
+      ...e,
       description: h.brand ? `${h.name} (${h.brand})` : h.name,
       servingLabel: h.servingLabel,
       servings: 1,
@@ -107,57 +188,104 @@ export function MealFoodLog({
         h.source === "cnf"
           ? "Health Canada CNF (typical serving)"
           : "Open Food Facts (packaged fallback)",
-    });
+      applied: e.applied,
+      lastApplied: e.lastApplied,
+    };
     setHits([]);
     setPlateHint(false);
-    setOcrStatus(null);
-    setOcrOk(false);
+    setErr(null);
+    // Single atomic apply so lookup macros land on scoreboard + pie immediately.
+    if (
+      !applyEntry(next, {
+        entryUpdate: {
+          description: next.description,
+          servingLabel: next.servingLabel,
+          servings: next.servings,
+          macros: next.macros,
+          source: next.source,
+          servingPhoto: next.servingPhoto,
+          labelPhoto: next.labelPhoto,
+          extraPhotos: next.extraPhotos,
+        },
+        status: "Added to scoreboard",
+      })
+    ) {
+      onChange(mealId, { ...next, applied: false });
+      setPhotoStatus("Enter or adjust values below, then they will add to the scoreboard.");
+      setPhotoStatusOk(false);
+    }
   }
 
   async function runLabelOcr(dataUrl: string, base: MealFoodEntry) {
     setErr(null);
-    setOcrOk(false);
-    setOcrStatus("Reading label…");
+    setPhotoStatusOk(false);
+    setPhotoStatus("Reading label…");
     setPlateHint(false);
     try {
       const { ocrNutritionFromImage } = await import("../lib/nutritionOcr");
-      const result = await ocrNutritionFromImage(dataUrl, (s) => setOcrStatus(s));
+      const result = await ocrNutritionFromImage(dataUrl, (s) => setPhotoStatus(s));
       if (result.found) {
-        onChange(mealId, {
+        const macros = {
+          ...base.macros,
+          ...result.macros,
+          fluid: base.macros.fluid,
+        };
+        const next: MealFoodEntry = {
           ...base,
           labelPhoto: dataUrl,
-          macros: { ...base.macros, ...result.macros, fluid: base.macros.fluid },
-          servingLabel: result.servingLabel || base.servingLabel || "1 serving (from label)",
+          macros,
+          servingLabel:
+            result.servingLabel || base.servingLabel || "1 serving (from label)",
           source: "OCR from label photo",
-          applied: false,
+          applied: base.applied,
+          lastApplied: base.lastApplied,
+        };
+        const applied = applyEntry(next, {
+          entryUpdate: {
+            description: next.description,
+            servingLabel: next.servingLabel,
+            servings: next.servings,
+            macros: next.macros,
+            source: next.source,
+            servingPhoto: next.servingPhoto,
+            labelPhoto: dataUrl,
+            extraPhotos: next.extraPhotos,
+          },
+          status: `${result.summary} — Added to scoreboard`,
         });
-        setOcrStatus(`${result.summary} — tap Add to scoreboard below.`);
-        setOcrOk(true);
+        if (!applied) {
+          onChange(mealId, { ...next, applied: false });
+          setPhotoStatus(
+            `${result.summary} Values look empty — edit the numbers under the photo.`,
+          );
+          setPhotoStatusOk(false);
+        }
         setErr(null);
       } else {
-        // Keep the photo; leave macros alone
         onChange(mealId, {
           ...base,
           labelPhoto: dataUrl,
-          applied: false,
+          applied: base.applied,
+          lastApplied: base.lastApplied,
         });
-        setOcrStatus(
-          `${result.summary} Type a food name and tap Check nutrition facts, or enter values by hand.`,
+        setPhotoStatus(
+          `${result.summary} Edit values under the photo, or type a food name and tap Check nutrition facts.`,
         );
-        setOcrOk(false);
+        setPhotoStatusOk(false);
       }
     } catch (ex) {
       onChange(mealId, {
         ...base,
         labelPhoto: dataUrl,
-        applied: false,
+        applied: base.applied,
+        lastApplied: base.lastApplied,
       });
-      setOcrStatus(
+      setPhotoStatus(
         ex instanceof Error
-          ? `Could not read label (${ex.message}). Enter values by hand or use text lookup.`
-          : "Could not read label. Enter values by hand or use text lookup.",
+          ? `Could not read label (${ex.message}). Enter values under the photo or use text lookup.`
+          : "Could not read label. Enter values under the photo or use text lookup.",
       );
-      setOcrOk(false);
+      setPhotoStatusOk(false);
     }
   }
 
@@ -171,7 +299,8 @@ export function MealFoodLog({
       const base: MealFoodEntry = {
         ...e,
         [kind]: dataUrl,
-        applied: false,
+        applied: e.applied,
+        lastApplied: e.lastApplied,
       };
       // Show photo immediately
       onChange(mealId, base);
@@ -182,8 +311,8 @@ export function MealFoodLog({
         await runLabelOcr(dataUrl, base);
       } else if (kind === "servingPhoto" && macrosAreEmpty(e.macros)) {
         setPlateHint(true);
-        setOcrStatus(null);
-        setOcrOk(false);
+        setPhotoStatus(null);
+        setPhotoStatusOk(false);
       }
     } catch {
       setErr("Could not save that photo.");
@@ -194,7 +323,7 @@ export function MealFoodLog({
     if (!file) return;
     try {
       const dataUrl = await compressImage(file);
-      patch({ extraPhotos: [...extras, dataUrl] });
+      patch({ extraPhotos: [...extras, dataUrl] }, true);
       setMorePhotoPrompt(true);
       setPhotoGate(false);
     } catch {
@@ -203,33 +332,49 @@ export function MealFoodLog({
   }
 
   function removeExtra(index: number) {
-    patch({ extraPhotos: extras.filter((_, i) => i !== index) });
+    patch({ extraPhotos: extras.filter((_, i) => i !== index) }, true);
   }
 
-  function commitToScoreboard() {
-    const scaled = scaleMacros(e.macros, e.servings || 1);
-    // Only apply once — useLogs.applyFoodMacros marks applied + lastApplied.
-    // A second onChange here used to overwrite nutrients with a stale day log.
-    onApplyToScoreboard(mealId, scaled);
-    setPhotoGate(false);
-    setMorePhotoPrompt(false);
-    setOcrOk(false);
-    const hasAnyPhoto = Boolean(e.servingPhoto || e.labelPhoto || extras.length);
-    if (!hasAnyPhoto) {
-      // Soft nudge after a successful add — never blocks the scoreboard
-      setPhotoGate(true);
+  function updateMacroField(key: keyof MacroSet, value: number) {
+    const macros = { ...e.macros, [key]: Math.max(0, value) };
+    const next: MealFoodEntry = {
+      ...e,
+      macros,
+      source: editedSource(e.source),
+      applied: e.applied,
+      lastApplied: e.lastApplied,
+    };
+    onChange(mealId, next);
+    setPlateHint(false);
+    if (canApplyMacros(scaleMacros(macros, next.servings || 1))) {
+      scheduleReapply(next);
+    }
+  }
+
+  function updateServings(servings: number) {
+    const next: MealFoodEntry = {
+      ...e,
+      servings,
+      applied: e.applied,
+      lastApplied: e.lastApplied,
+    };
+    onChange(mealId, next);
+    if (canApplyMacros(scaleMacros(next.macros, servings || 1))) {
+      scheduleReapply(next);
     }
   }
 
   function tryAddToScoreboard() {
     const scaled = scaleMacros(e.macros, e.servings || 1);
-    if (scaled.calories <= 0 && scaled.protein <= 0 && scaled.carbs <= 0) return;
-    commitToScoreboard();
+    if (!canApplyMacros(scaled)) return;
+    applyEntry(e, { status: "Added to scoreboard" });
   }
 
   const scaled = scaleMacros(e.macros, e.servings || 1);
-  const canAdd =
-    scaled.calories > 0 || scaled.protein > 0 || scaled.carbs > 0;
+  const canAdd = canApplyMacros(scaled);
+  const hasPhoto = Boolean(e.servingPhoto || e.labelPhoto || extras.length);
+  const showNutrientPanel =
+    hasPhoto || !macrosAreEmpty(e.macros) || e.applied || Boolean(e.source);
 
   return (
     <div className={`meal-food ${open ? "open" : ""}`}>
@@ -246,8 +391,9 @@ export function MealFoodLog({
         <div className="meal-food-body">
           <p className="meal-food-hint">
             For <strong>{mealTitle}</strong>: look up a typical serving (Health Canada
-            Canadian Nutrient File), snap the portion and the box label, then add macros to
-            the scoreboard above. Label photos are read with on-device OCR.
+            Canadian Nutrient File), snap the portion and the box label, then macros
+            roll into the scoreboard and pie. Label photos are read with on-device OCR;
+            edit the numbers under the photo anytime.
           </p>
 
           <label className="field">
@@ -256,7 +402,7 @@ export function MealFoodLog({
               type="text"
               value={e.description}
               placeholder="e.g. Greek yogurt, banana, breastmilk"
-              onChange={(ev) => patch({ description: ev.target.value })}
+              onChange={(ev) => patch({ description: ev.target.value }, true)}
             />
           </label>
 
@@ -272,22 +418,6 @@ export function MealFoodLog({
           </div>
 
           {err && <p className="meal-food-err">{err}</p>}
-          {ocrStatus && (
-            <p
-              className={ocrOk ? "meal-food-ocr ok" : "meal-food-ocr"}
-              role="status"
-              aria-live="polite"
-            >
-              {ocrStatus}
-            </p>
-          )}
-          {plateHint && macrosAreEmpty(e.macros) && (
-            <p className="meal-food-ocr hint" role="status">
-              Plate photos alone don&apos;t set nutrition. Type a food name and tap{" "}
-              <strong>Check nutrition facts</strong>, or add a{" "}
-              <strong>box / label nutrition facts</strong> photo for OCR.
-            </p>
-          )}
 
           {hits.length > 0 && (
             <ul className="nutrition-hits">
@@ -313,96 +443,6 @@ export function MealFoodLog({
               ))}
             </ul>
           )}
-
-          <label className="field">
-            <span>Serving size label</span>
-            <input
-              type="text"
-              value={e.servingLabel}
-              placeholder="e.g. 1 cup (240 g) or 1 bottle"
-              onChange={(ev) => patch({ servingLabel: ev.target.value })}
-            />
-          </label>
-
-          <label className="field inline">
-            <span>How many of that serving?</span>
-            <input
-              type="number"
-              min={0.25}
-              step={0.25}
-              value={e.servings}
-              onChange={(ev) =>
-                patch({ servings: Math.max(0, Number(ev.target.value) || 0) })
-              }
-            />
-          </label>
-
-          {e.source && (
-            <p className="meal-food-source">Source: {e.source}</p>
-          )}
-
-          <div className="macro-grid">
-            {(
-              [
-                ["calories", "kcal"],
-                ["protein", "g"],
-                ["carbs", "g"],
-                ["sugar", "g"],
-                ["fat", "g"],
-                ["calcium", "mg"],
-              ] as const
-            ).map(([key, unit]) => (
-              <label key={key} className="macro-cell">
-                <span>
-                  {key} ({unit})
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step={key === "calories" || key === "calcium" ? 1 : 0.1}
-                  value={e.macros[key]}
-                  onChange={(ev) =>
-                    patch({
-                      macros: {
-                        ...e.macros,
-                        [key]: Math.max(0, Number(ev.target.value) || 0),
-                      },
-                      source: e.source?.includes("manual")
-                        ? e.source
-                        : e.source
-                          ? `${e.source} · edited`
-                          : "manual / label",
-                    })
-                  }
-                />
-              </label>
-            ))}
-          </div>
-
-          <div className="meal-fluid-block">
-            <span className="meal-fluid-heading">Fluid / liquid (oz · ml · L)</span>
-            <VolumeFields
-              mode="ml"
-              showLiters
-              hideTotal
-              label="Entry fluid"
-              valueMl={e.macros.fluid || 0}
-              onChangeMl={(ml) =>
-                patch({
-                  macros: { ...e.macros, fluid: ml },
-                  source: e.source?.includes("manual")
-                    ? e.source
-                    : e.source
-                      ? `${e.source} · edited`
-                      : "manual / label",
-                })
-              }
-              className="meal-fluid-volume"
-            />
-            <p className="meal-fluid-total" aria-live="polite">
-              {formatMlTotal(e.macros.fluid || 0)}
-            </p>
-          </div>
 
           <div className="photo-row">
             <div className="photo-slot photo-slot-serving">
@@ -477,6 +517,110 @@ export function MealFoodLog({
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Status + editable nutrients directly under photos */}
+          {(photoStatus || (plateHint && macrosAreEmpty(e.macros))) && (
+            <div className="under-photo-status">
+              {photoStatus && (
+                <p
+                  className={photoStatusOk ? "meal-food-ocr ok" : "meal-food-ocr"}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {photoStatus}
+                </p>
+              )}
+              {plateHint && macrosAreEmpty(e.macros) && (
+                <p className="meal-food-ocr hint" role="status">
+                  Plate photos alone don&apos;t set nutrition. Type a food name and tap{" "}
+                  <strong>Check nutrition facts</strong>, add a{" "}
+                  <strong>box / label</strong> photo for OCR, or enter values below.
+                </p>
+              )}
+            </div>
+          )}
+
+          {showNutrientPanel && (
+            <div className="under-photo-nutrients" aria-label="Nutrients for this food">
+              <div className="under-photo-nutrients-head">
+                <strong>Nutrients</strong>
+                <span className="under-photo-nutrients-sub">
+                  {e.applied
+                    ? "On scoreboard · edit to update pie"
+                    : "Edit under the photo · auto-adds when set"}
+                </span>
+              </div>
+
+              <label className="field">
+                <span>Serving size label</span>
+                <input
+                  type="text"
+                  value={e.servingLabel}
+                  placeholder="e.g. 1 cup (240 g) or 1 bottle"
+                  onChange={(ev) =>
+                    patch({ servingLabel: ev.target.value }, true)
+                  }
+                />
+              </label>
+
+              <label className="field inline">
+                <span>How many of that serving?</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0.25}
+                  step={0.25}
+                  value={e.servings}
+                  onChange={(ev) =>
+                    updateServings(Math.max(0, Number(ev.target.value) || 0))
+                  }
+                />
+              </label>
+
+              {e.source && (
+                <p className="meal-food-source">Source: {e.source}</p>
+              )}
+
+              <div className="macro-grid under-photo-macro-grid">
+                {MACRO_FIELDS.map(([key, unit]) => (
+                  <label key={key} className="macro-cell">
+                    <span>
+                      {key} ({unit})
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step={key === "calories" || key === "calcium" ? 1 : 0.1}
+                      value={e.macros[key]}
+                      onChange={(ev) =>
+                        updateMacroField(
+                          key,
+                          Number(ev.target.value) || 0,
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div className="meal-fluid-block">
+                <span className="meal-fluid-heading">Fluid / liquid (oz · ml · L)</span>
+                <VolumeFields
+                  mode="ml"
+                  showLiters
+                  hideTotal
+                  label="Entry fluid"
+                  valueMl={e.macros.fluid || 0}
+                  onChangeMl={(ml) => updateMacroField("fluid", ml)}
+                  className="meal-fluid-volume"
+                />
+                <p className="meal-fluid-total" aria-live="polite">
+                  {formatMlTotal(e.macros.fluid || 0)}
+                </p>
+              </div>
             </div>
           )}
 
@@ -566,7 +710,7 @@ export function MealFoodLog({
             }}
           />
 
-          {!morePhotoPrompt && (e.servingPhoto || e.labelPhoto || extras.length > 0) && (
+          {!morePhotoPrompt && hasPhoto && (
             <div className="add-more-photos-row">
               <button
                 type="button"
@@ -591,7 +735,6 @@ export function MealFoodLog({
                   onClick={() => {
                     setPhotoGate(false);
                     setMorePhotoPrompt(false);
-                    // scroll attention stays on photo row; open camera for serving
                     const el = document.querySelector(
                       `.meal-food.open .photo-slot input`,
                     ) as HTMLInputElement | null;
@@ -618,10 +761,11 @@ export function MealFoodLog({
               {scaled.fat}g
               {scaled.calcium ? ` · Ca ${scaled.calcium}mg` : ""}
               {scaled.fluid ? ` · fluid ${formatMlTotal(scaled.fluid)}` : ""}
+              {e.applied ? " · on scoreboard" : ""}
             </p>
             <button
               type="button"
-              className={`btn-primary${ocrOk && canAdd ? " pulse-hint" : ""}`}
+              className="btn-primary"
               disabled={!canAdd}
               onClick={() => tryAddToScoreboard()}
             >

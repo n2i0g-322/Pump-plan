@@ -309,20 +309,24 @@ export function useLogs() {
       },
     }));
 
-  /** Replace this meal's prior contribution on the scoreboard with new macros. */
+  /**
+   * Replace this meal's prior contribution on the scoreboard with new macros.
+   * Optional entryUpdate merges photos/macros/labels in the same patch so OCR
+   * auto-apply cannot race with a separate setFoodLog and drop fields.
+   */
   const applyFoodMacros = (
     year: number,
     monthIndex: number,
     dayId: string,
     mealId: string,
     macros: MacroSet,
+    entryUpdate?: Partial<MealFoodEntry>,
   ) =>
     patch(year, monthIndex, dayId, (cur) => {
       const prevEntry = cur.foodLogs[mealId];
-      const prevApplied: MacroSet =
-        prevEntry?.applied && prevEntry.lastApplied
-          ? prevEntry.lastApplied
-          : EMPTY_MACROS;
+      // Prefer lastApplied whenever present so edits that briefly clear
+      // `applied` still replace instead of double-counting.
+      const prevApplied: MacroSet = prevEntry?.lastApplied ?? EMPTY_MACROS;
       const withoutPrev = subtractMacros(fromMap(cur.nutrients ?? {}), prevApplied);
       const nextMacros = addMacros(withoutPrev, macros);
       const nextEntry: MealFoodEntry = {
@@ -333,6 +337,7 @@ export function useLogs() {
           macros: EMPTY_MACROS,
           applied: false,
         }),
+        ...entryUpdate,
         applied: true,
         lastApplied: macros,
       };
